@@ -75,7 +75,19 @@ def _truncate_meta(meta_dir: Path, tmp_dir: Path, fold: int, n_rows: int) -> Pat
     tmp_dir.mkdir(parents=True, exist_ok=True)
     kept_ids = set()
     for split in ("train", "validation", "evaluation"):
-        df = pd.read_csv(meta_dir / f"fold{fold}_{split}.tsv", sep="\t").head(n_rows)
+        df = pd.read_csv(meta_dir / f"fold{fold}_{split}.tsv", sep="\t")
+        if len(df) > n_rows:
+            id_col, label_col = df.columns[:2]
+            half = max(n_rows // 2, 1)
+            bonafide = df[df[label_col] == "bonafide"].head(half)
+            spoof = df[df[label_col] != "bonafide"].head(n_rows - len(bonafide))
+            df = pd.concat([bonafide, spoof], ignore_index=True)
+            if len(df) < n_rows:
+                used = set(df[id_col].tolist())
+                filler = df.iloc[0:0]
+                source = pd.read_csv(meta_dir / f"fold{fold}_{split}.tsv", sep="\t")
+                filler = source[~source[id_col].isin(used)].head(n_rows - len(df))
+                df = pd.concat([df, filler], ignore_index=True)
         df.to_csv(tmp_dir / f"fold{fold}_{split}.tsv", sep="\t", index=False)
         kept_ids.update(df.iloc[:, 0].tolist())
 

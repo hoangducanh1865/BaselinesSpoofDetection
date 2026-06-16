@@ -9,6 +9,7 @@ Author: Zihan Pan
 
 import argparse
 import json
+import math
 import os
 import warnings
 from importlib import import_module
@@ -172,10 +173,13 @@ def run_train(args):
         scheduler.step()
 
         if rank == 0:
-            if dev_eer <= best_dev_eer:
+            if math.isfinite(dev_eer) and dev_eer <= best_dev_eer:
                 best_dev_eer = dev_eer
                 torch.save(model.state_dict(),
                     model_save_path / f"epoch_{epoch}_{dev_eer:03.3f}.pth")
+            elif not any(model_save_path.glob("epoch_*.pth")):
+                torch.save(model.state_dict(),
+                    model_save_path / f"epoch_{epoch}_fallback.pth")
              
             save_logs(epoch, scheduler.get_last_lr(), model_tag, running_loss, dev_eer, valid_loss, running_ortho_loss)
 
@@ -231,6 +235,15 @@ def merge_checkpoint(model_tag, model_save_path):
     for path_pattern in checkpoint_paths:
         # This will get the first file matching the pattern
         actual_checkpoint_paths.extend(glob.glob(path_pattern))
+
+    if not actual_checkpoint_paths:
+        actual_checkpoint_paths = sorted(glob.glob(os.path.join(checkpoint_dir, 'epoch_*.pth')))
+
+    if not actual_checkpoint_paths:
+        raise FileNotFoundError(
+            f"No checkpoints found in {checkpoint_dir}. "
+            "Check whether validation EER was finite and whether checkpoint epoch numbering matches valid_loss.txt."
+        )
 
     # Average the checkpoints
     avg_checkpoint = average_checkpoints(actual_checkpoint_paths)
@@ -377,12 +390,17 @@ def read_losses(file_path):
         for line in file:
             if line.startswith('Epoch'):
                 parts = line.split(':')
-                epoch = int(parts[0].split()[1])  # Adjusting for zero-indexing
+                # save_logs writes epochs as 1-based human-readable IDs, while
+                # checkpoint filenames use the zero-based loop index.
+                epoch = int(parts[0].split()[1]) - 1
                 loss = float(parts[1].strip())
                 losses[epoch] = loss
     return losses
 
 def average_checkpoints(checkpoint_paths):
+    if not checkpoint_paths:
+        raise ValueError("average_checkpoints received an empty checkpoint list")
+
     # Load all checkpoints and store their state_dicts
     state_dicts = [torch.load(path) for path in checkpoint_paths]
 
