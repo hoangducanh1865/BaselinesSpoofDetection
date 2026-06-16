@@ -11,6 +11,7 @@ import argparse
 import json
 import math
 import os
+import re
 import warnings
 from importlib import import_module
 from pathlib import Path
@@ -117,14 +118,41 @@ def run_train(args):
     # get optimizer and scheduler
     optim_config["steps_per_epoch"] = len(trn_loader)
 
-    best_dev_eer = float("inf")
     metric_path = model_tag / "metrics"
     os.makedirs(metric_path, exist_ok=True)
 
     # Training
     optimizer, scheduler= create_optimizer(params_backend, optim_config)    
 
-    for epoch in range(config["num_epochs"]):
+    resume_checkpoint_path, start_epoch = find_latest_epoch_checkpoint(model_save_path)
+    best_dev_eer = read_best_dev_eer(model_tag)
+    if resume_checkpoint_path is not None:
+        checkpoint = torch.load(resume_checkpoint_path, map_location=device)
+        if isinstance(checkpoint, dict) and "model" in checkpoint:
+            checkpoint = checkpoint["model"]
+        model.load_state_dict(checkpoint)
+        training_state_path = get_training_state_path(model_save_path, start_epoch - 1)
+        if training_state_path.exists():
+            training_state = torch.load(training_state_path, map_location=device)
+            optimizer.load_state_dict(training_state["optimizer"])
+            if scheduler is not None and training_state.get("scheduler") is not None:
+                scheduler.load_state_dict(training_state["scheduler"])
+            best_dev_eer = training_state.get("best_dev_eer", best_dev_eer)
+            print(f"Loaded optimizer/scheduler state from {training_state_path}.")
+        else:
+            print(f"No optimizer/scheduler state found at {training_state_path}; resuming model weights only.")
+        print(f"Resumed model from {resume_checkpoint_path}; starting at epoch {start_epoch:03d}.")
+    else:
+        start_epoch = 0
+        best_dev_eer = float("inf")
+
+    if start_epoch >= config["num_epochs"]:
+        print(
+            f"Latest checkpoint is epoch {start_epoch - 1:03d}; "
+            f"num_epochs={config['num_epochs']}, so no additional training epochs are required."
+        )
+
+    for epoch in range(start_epoch, config["num_epochs"]):
 
         running_loss = 0
         running_ortho_loss = 0
@@ -173,13 +201,19 @@ def run_train(args):
         scheduler.step()
 
         if rank == 0:
+            saved_checkpoint = False
             if math.isfinite(dev_eer) and dev_eer <= best_dev_eer:
                 best_dev_eer = dev_eer
                 torch.save(model.state_dict(),
                     model_save_path / f"epoch_{epoch}_{dev_eer:03.3f}.pth")
+                saved_checkpoint = True
             elif not any(model_save_path.glob("epoch_*.pth")):
                 torch.save(model.state_dict(),
                     model_save_path / f"epoch_{epoch}_fallback.pth")
+                saved_checkpoint = True
+
+            if saved_checkpoint:
+                save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_eer)
              
             save_logs(epoch, scheduler.get_last_lr(), model_tag, running_loss, dev_eer, valid_loss, running_ortho_loss)
 
@@ -213,6 +247,44 @@ def lora_orthogonality_loss(adapters):
         # Penalize deviation from orthogonality
         loss += F.mse_loss(gram_matrix, identity_matrix)
     return loss
+
+
+def checkpoint_epoch(checkpoint_path):
+    match = re.match(r"epoch_(\d+)_.*\.pth$", checkpoint_path.name)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def find_latest_epoch_checkpoint(model_save_path):
+    epoch_checkpoints = []
+    for checkpoint_path in model_save_path.glob("epoch_*.pth"):
+        epoch = checkpoint_epoch(checkpoint_path)
+        if epoch is not None:
+            epoch_checkpoints.append((epoch, checkpoint_path))
+
+    if not epoch_checkpoints:
+        return None, 0
+
+    latest_epoch, latest_checkpoint_path = max(epoch_checkpoints, key=lambda item: item[0])
+    return latest_checkpoint_path, latest_epoch + 1
+
+
+def get_training_state_path(model_save_path, epoch):
+    return model_save_path / f"training_state_epoch_{epoch}.pth"
+
+
+def save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_eer):
+    torch.save(
+        {
+            "epoch": epoch,
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict() if scheduler is not None else None,
+            "best_dev_eer": best_dev_eer,
+        },
+        get_training_state_path(model_save_path, epoch),
+    )
+
 
 def merge_checkpoint(model_tag, model_save_path):            
     # Path to your validation loss text file
@@ -253,6 +325,24 @@ def merge_checkpoint(model_tag, model_save_path):
     # Saving the averaged checkpoint
     torch.save(avg_checkpoint, best_checkpoint_path)
     return best_checkpoint_path
+
+
+def read_best_dev_eer(model_tag):
+    txt_path = model_tag/'validation_eer_history.txt'
+    best_dev_eer = float("inf")
+    if not txt_path.exists():
+        return best_dev_eer
+
+    with open(txt_path, 'r') as file:
+        for line in file:
+            if line.startswith('Epoch'):
+                try:
+                    dev_eer = float(line.split(':', 1)[1].strip())
+                except (IndexError, ValueError):
+                    continue
+                if math.isfinite(dev_eer):
+                    best_dev_eer = min(best_dev_eer, dev_eer)
+    return best_dev_eer
 
 
 
