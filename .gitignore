@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+.DS_Store
+debug/
+stuff/
+
+# Model weights and run outputs (server-side only, never committed)
+*.pt
+*.pth
+*.bin
+outputs/
+
+# Raw data must never land inside datasets/ (it lives under ../datasets on the server);
+# only the thin adapter scripts in this folder are tracked.
+datasets/*
+!datasets/*.py
