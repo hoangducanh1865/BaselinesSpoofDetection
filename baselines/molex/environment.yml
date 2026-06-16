@@ -16,7 +16,7 @@ dependencies:
   - scipy
   - numba
   - tqdm
-  - soundfile
+  - pysoundfile
   - librosa
   - scikit-learn
   - pip
