@@ -60,6 +60,9 @@ def _resolve_meta(cfg: dict, args) -> tuple[Path, Path]:
 
 def _json_config(cfg: dict, num_epochs: int | None) -> dict:
     return {
+        "cudnn_deterministic_toggle": str(cfg.get("cudnn_deterministic_toggle", "True")),
+        "cudnn_benchmark_toggle": str(cfg.get("cudnn_benchmark_toggle", "False")),
+
         "batch_size": cfg["batch_size"],
         "num_epochs": num_epochs if num_epochs is not None else cfg["num_epochs"],
         "model_config": cfg["model_config"],
