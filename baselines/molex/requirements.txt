@@ -1,0 +1,19 @@
+# Pip equivalent of environment.yml, for use inside the molex_anhhd conda env
+# (which already provides Python 3.10 + CUDA 11.8 via conda-forge/nvidia channels).
+# If installing torch via pip from scratch instead of conda, use:
+#   pip install torch==2.2.1 torchaudio==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cu118
+torch==2.2.1
+torchaudio==2.2.1
+torchvision==0.17.1
+numpy
+pandas
+scipy
+numba
+tqdm
+soundfile
+librosa
+scikit-learn
+einops
+webrtcvad
+python-dotenv
+pyyaml
