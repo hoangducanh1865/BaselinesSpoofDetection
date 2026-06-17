@@ -59,3 +59,5 @@ paths:
 # to match the SLURM --gres allocation.
 runtime:
   num_gpu: 1
+  # Log W&B batch metrics every N train batches. This does not change training math.
+  wandb_log_interval: 100

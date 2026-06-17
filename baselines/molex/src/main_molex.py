@@ -228,7 +228,11 @@ def run_train(args):
     log_rank0(rank, run_log_path, "[setup] Creating optimizer and scheduler...")
     optimizer, scheduler= create_optimizer(params_backend, optim_config)    
     log_rank0(rank, run_log_path, "[setup] Optimizer and scheduler created.")
-    wandb_log_interval = max(int(os.environ.get("WANDB_LOG_INTERVAL", "1")), 1)
+    wandb_log_interval = max(
+        int(os.environ.get("WANDB_LOG_INTERVAL", config.get("runtime", {}).get("wandb_log_interval", 100))),
+        1,
+    )
+    moe_layers = [layer for layer in model.module.ssl_model.encoder.layers if hasattr(layer, 'smoe')]
 
     if args.resume:
         log_rank0(rank, run_log_path, "[resume] Searching for the latest resume checkpoint...")
@@ -291,8 +295,8 @@ def run_train(args):
         for batch_idx, (batch_x, batch_y, utt_id) in enumerate(train_iter):
             batch_size = batch_x.size(0)
             num_total += batch_size
-            batch_x = batch_x.to(device)
-            batch_y = batch_y.view(-1).type(torch.int64).to(device)
+            batch_x = batch_x.to(device, non_blocking=True)
+            batch_y = batch_y.view(-1).type(torch.int64).to(device, non_blocking=True)
 
             optimizer.zero_grad()
 
@@ -300,7 +304,7 @@ def run_train(args):
             batch_loss = criterion(batch_out, batch_y)
 
             # add orthogonal loss
-            orth_loss = sum(lora_orthogonality_loss(layer.smoe.experts) for layer in model.module.ssl_model.encoder.layers if hasattr(layer, 'smoe')) if any(hasattr(layer, 'smoe') for layer in model.module.ssl_model.encoder.layers) else 0
+            orth_loss = sum(lora_orthogonality_loss(layer.smoe.experts) for layer in moe_layers) if moe_layers else 0
             orth_loss_value = float(orth_loss.detach().item()) if torch.is_tensor(orth_loss) else float(orth_loss)
             batch_loss = batch_loss + orth_loss*0.01
 
@@ -676,11 +680,11 @@ def produce_evaluation_file(
 
     eval_iter = tqdm(data_loader, desc=desc, disable=disable, dynamic_ncols=True, leave=True)
     for i, (batch_x, batch_y, utt_id) in enumerate(eval_iter):
-        batch_x = batch_x.to(device)
-        batch_y = batch_y.to(device)
+        batch_x = batch_x.to(device, non_blocking=True)
+        batch_y = batch_y.to(device, non_blocking=True)
         batch_size = batch_x.size(0)
         num_total += batch_size
-        with torch.no_grad():
+        with torch.inference_mode():
             # _, batch_out = model(batch_x) # for AASIST
             batch_out = model(batch_x) 
             batch_score = (batch_out[:, 1]).data.cpu().numpy().ravel() # 1 - detect bona, 0 - detect spoof

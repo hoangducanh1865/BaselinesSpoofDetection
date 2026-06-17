@@ -114,6 +114,7 @@ def _json_config(cfg: dict, num_epochs: int | None) -> dict:
         "num_epochs": num_epochs if num_epochs is not None else cfg["num_epochs"],
         "model_config": cfg["model_config"],
         "optim_config": cfg["optim_config"],
+        "runtime": cfg.get("runtime", {}),
     }
 
 
