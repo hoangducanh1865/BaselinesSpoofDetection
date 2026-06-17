@@ -25,6 +25,7 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
+from tqdm import tqdm
 
 from data_utils_NEW import (
     CyberDataset,
@@ -165,7 +166,15 @@ def run_train(args):
         weight = torch.FloatTensor([0.1, 0.9]).to(device)
         criterion = nn.CrossEntropyLoss(weight=weight).to(device)
 
-        for batch_x, batch_y, utt_id in trn_loader:
+        train_iter = tqdm(
+            trn_loader,
+            desc=f"Epoch {epoch:03d} train",
+            disable=(rank != 0),
+            dynamic_ncols=True,
+            leave=True,
+        )
+
+        for batch_x, batch_y, utt_id in train_iter:
             batch_size = batch_x.size(0)
             num_total += batch_size
             batch_x = batch_x.to(device)
@@ -188,11 +197,19 @@ def run_train(args):
 
             optimizer.step()   
 
+            if rank == 0:
+                train_iter.set_postfix(
+                    loss=f"{batch_loss.item():.4f}",
+                    orth=f"{float(orth_loss):.4f}" if not isinstance(orth_loss, int) else "0.0000",
+                )
+
         running_loss /= num_total       
         running_ortho_loss /= num_total 
       
         valid_loss = produce_evaluation_file(dev_loader, model, device,
-                                metric_path / "dev_score.txt")
+                                metric_path / "dev_score.txt",
+                                desc=f"Epoch {epoch:03d} valid",
+                                disable=(rank != 0))
             
 
         dev_eer, dev_th = compute_nist_eer(sc_file=metric_path / "dev_score.txt",
@@ -226,7 +243,9 @@ def run_train(args):
 
         eval_score_path = model_tag / 'eval_output.txt'
         eval_loss = produce_evaluation_file(eval_loader, model, device,
-                                eval_score_path)
+                                eval_score_path,
+                                desc="Final eval",
+                                disable=False)
         eval_eer, _ = compute_nist_eer(sc_file=eval_score_path,
                                     output_file=metric_path / "eval_best.txt")
 
@@ -432,7 +451,9 @@ def produce_evaluation_file(
         data_loader: DataLoader,
         model,
         device: torch.device,
-        save_path: str) -> None:
+        save_path: str,
+        desc: str = "Evaluation",
+        disable: bool = False) -> None:
     """Perform evaluation and save the score to a file"""
     model.eval()
     fname_list = []
@@ -445,7 +466,8 @@ def produce_evaluation_file(
     valid_loss = 0.0
     num_total = 0.0
 
-    for i, (batch_x, batch_y, utt_id) in enumerate(data_loader):
+    eval_iter = tqdm(data_loader, desc=desc, disable=disable, dynamic_ncols=True, leave=True)
+    for i, (batch_x, batch_y, utt_id) in enumerate(eval_iter):
         batch_x = batch_x.to(device)
         batch_y = batch_y.to(device)
         batch_size = batch_x.size(0)
@@ -457,6 +479,7 @@ def produce_evaluation_file(
 
             batch_loss = criterion(batch_out, batch_y)
             valid_loss = valid_loss + batch_loss.item()*batch_size
+            eval_iter.set_postfix(loss=f"{batch_loss.item():.4f}")
         # add outputs
         fname_list.extend(utt_id)
         score_list.extend(batch_score.tolist())
