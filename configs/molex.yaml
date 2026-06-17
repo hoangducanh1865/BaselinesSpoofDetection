@@ -8,7 +8,7 @@
 # The adapter (baselines/molex/_adapter.py) merges this into a temp JSON
 # config rather than editing baselines/molex/configs/molex_ssl.conf in place.
 
-batch_size: 16
+batch_size: 32
 num_epochs: 30
 
 cudnn_deterministic_toggle: true
