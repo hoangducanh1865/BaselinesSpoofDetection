@@ -38,9 +38,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    # .env lives one level above the repo root on the server (../.env, holds HF_TOKEN).
+    # .env may live in the repo root or one level above it on the server.
     # Never print, log, or commit its contents.
     repo_root = Path(__file__).resolve().parent
+    load_dotenv(repo_root / ".env")
     load_dotenv(repo_root.parent / ".env")
 
     args = parse_args()

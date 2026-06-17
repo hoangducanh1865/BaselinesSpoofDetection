@@ -35,6 +35,11 @@ from data_utils_NEW import (
 from evaluation import compute_nist_eer
 from utils import create_optimizer, seed_worker, set_seed
 
+try:
+    import wandb
+except ImportError:
+    wandb = None
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
@@ -48,6 +53,62 @@ def log_rank0(rank, run_log_path, message):
     if rank == 0:
         print(message, flush=True)
         append_run_log(run_log_path, message)
+
+
+def init_wandb_run(rank, run_log_path, model_tag, config, args, meta_path, feat_file):
+    if rank != 0:
+        return None
+
+    if wandb is None:
+        log_rank0(rank, run_log_path, "[wandb] wandb is not installed; skipping W&B logging.")
+        return None
+
+    if not os.environ.get("WANDB_API_KEY") and os.environ.get("WANDB_MODE", "online") != "offline":
+        log_rank0(rank, run_log_path, "[wandb] WANDB_API_KEY is not set; skipping W&B logging.")
+        return None
+
+    run_id_path = model_tag / "wandb_run_id.txt"
+    if run_id_path.exists():
+        run_id = run_id_path.read_text().strip()
+    else:
+        run_id = model_tag.name
+        run_id_path.write_text(run_id + "\n")
+
+    project = os.environ.get("WANDB_PROJECT", "BaselinesSpoofDetection-MoLEx")
+    entity = os.environ.get("WANDB_ENTITY") or None
+
+    try:
+        if os.environ.get("WANDB_API_KEY"):
+            wandb.login(key=os.environ["WANDB_API_KEY"], relogin=False)
+        run = wandb.init(
+            project=project,
+            entity=entity,
+            id=run_id,
+            name=f"molex-{model_tag.name}",
+            resume="allow",
+            dir=str(model_tag),
+            config={
+                "seed": args.seed,
+                "fold": args.fold,
+                "exp_idx": args.exp_idx,
+                "resume": args.resume,
+                "run_dir": str(model_tag),
+                "meta_dir": str(meta_path),
+                "feat_file": str(feat_file),
+                "num_epochs": config["num_epochs"],
+                "batch_size": config["batch_size"],
+                "model_config": config["model_config"],
+                "optim_config": config["optim_config"],
+            },
+        )
+    except Exception as exc:
+        log_rank0(rank, run_log_path, f"[wandb] Failed to initialize W&B: {exc}")
+        return None
+
+    wandb.save(str(model_tag / "hyperparameters.json"), base_path=str(model_tag), policy="now")
+    wandb.save(str(model_tag / "config.conf"), base_path=str(model_tag), policy="now")
+    log_rank0(rank, run_log_path, f"[wandb] Logging to project={project}, run_id={run_id}.")
+    return run
 
 
 def cleanup():
@@ -112,6 +173,7 @@ def run_train(args):
         append_run_log(run_log_path, f"Resume requested: {args.resume}")
         append_run_log(run_log_path, "=" * 80)
 
+    wandb_run = init_wandb_run(rank, run_log_path, model_tag, config, args, meta_path, feat_file)
 
     import importlib
     model_name = model_config['model_name']
@@ -144,6 +206,16 @@ def run_train(args):
         f"[data] Dataloaders ready: train_batches={len(trn_loader)}, "
         f"valid_batches={len(dev_loader)}, eval_batches={len(eval_loader)}."
     )
+    if rank == 0 and wandb_run is not None:
+        wandb_run.config.update(
+            {
+                "train_batches": len(trn_loader),
+                "valid_batches": len(dev_loader),
+                "eval_batches": len(eval_loader),
+                "steps_per_epoch": len(trn_loader),
+            },
+            allow_val_change=True,
+        )
 
 
     # get optimizer and scheduler
@@ -156,6 +228,7 @@ def run_train(args):
     log_rank0(rank, run_log_path, "[setup] Creating optimizer and scheduler...")
     optimizer, scheduler= create_optimizer(params_backend, optim_config)    
     log_rank0(rank, run_log_path, "[setup] Optimizer and scheduler created.")
+    wandb_log_interval = max(int(os.environ.get("WANDB_LOG_INTERVAL", "1")), 1)
 
     if args.resume:
         log_rank0(rank, run_log_path, "[resume] Searching for the latest resume checkpoint...")
@@ -215,7 +288,7 @@ def run_train(args):
             leave=True,
         )
 
-        for batch_x, batch_y, utt_id in train_iter:
+        for batch_idx, (batch_x, batch_y, utt_id) in enumerate(train_iter):
             batch_size = batch_x.size(0)
             num_total += batch_size
             batch_x = batch_x.to(device)
@@ -244,6 +317,17 @@ def run_train(args):
                     loss=f"{batch_loss.item():.4f}",
                     orth=f"{orth_loss_value:.4f}",
                 )
+                if wandb_run is not None and batch_idx % wandb_log_interval == 0:
+                    global_step = epoch * len(trn_loader) + batch_idx
+                    wandb_run.log(
+                        {
+                            "train/batch_loss": batch_loss.item(),
+                            "train/orth_loss": orth_loss_value,
+                            "train/epoch": epoch,
+                            "train/lr": scheduler.get_last_lr()[0],
+                        },
+                        step=global_step,
+                    )
 
         running_loss /= num_total       
         running_ortho_loss /= num_total 
@@ -282,6 +366,22 @@ def run_train(args):
                 f"orth_loss={float(running_ortho_loss):.6f}, valid_loss={valid_loss:.6f}, "
                 f"dev_eer={dev_eer:.6f}, lr={scheduler.get_last_lr()[0]:.8f}"
             )
+            if wandb_run is not None:
+                epoch_step = (epoch + 1) * len(trn_loader)
+                wandb_run.log(
+                    {
+                        "epoch": epoch,
+                        "train/loss": running_loss,
+                        "train/epoch_orth_loss": running_ortho_loss,
+                        "valid/loss": valid_loss,
+                        "valid/eer": dev_eer,
+                        "valid/threshold": dev_th,
+                        "optim/lr": scheduler.get_last_lr()[0],
+                        "checkpoint/saved_best": int(saved_checkpoint),
+                        "checkpoint/best_dev_eer": best_dev_eer,
+                    },
+                    step=epoch_step,
+                )
 
 
     # Evaluation with the best model
@@ -302,6 +402,28 @@ def run_train(args):
                                     output_file=metric_path / "eval_best.txt")
         append_run_log(run_log_path, f"Final eval: eval_loss={eval_loss:.6f}, eval_eer={eval_eer:.6f}")
         append_run_log(run_log_path, f"Run finished at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        if wandb_run is not None:
+            final_step = config["num_epochs"] * len(trn_loader)
+            wandb_run.log(
+                {
+                    "eval/loss": eval_loss,
+                    "eval/eer": eval_eer,
+                    "eval/checkpoint": str(best_checkpoint_path),
+                },
+                step=final_step,
+            )
+            for artifact_path in (
+                run_log_path,
+                model_tag / "loss_history.txt",
+                model_tag / "Orthogonal_loss_history.txt",
+                model_tag / "validation_eer_history.txt",
+                model_tag / "learning_rate.txt",
+                model_tag / "valid_loss.txt",
+                metric_path / "eval_best.txt",
+            ):
+                if artifact_path.exists():
+                    wandb.save(str(artifact_path), base_path=str(model_tag), policy="now")
+            wandb_run.finish()
 
 
     cleanup()

@@ -25,3 +25,4 @@ dependencies:
       - webrtcvad
       - python-dotenv
       - pyyaml
+      - wandb
