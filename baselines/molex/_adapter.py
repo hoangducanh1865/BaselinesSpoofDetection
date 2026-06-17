@@ -18,6 +18,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -37,6 +39,26 @@ DATASET_MODULES = {
     "asvspoof2019la": ("datasets.asvspoof2019", "LA"),
     "asvspoof2019pa": ("datasets.asvspoof2019", "PA"),
 }
+
+
+def _output_root() -> Path:
+    return REPO_ROOT / "outputs" / "molex"
+
+
+def _new_run_dir(output_root: Path) -> Path:
+    run_dir = output_root / datetime.now().strftime("%H_%M_%S_%d_%m_%Y")
+    while run_dir.exists():
+        time.sleep(1)
+        run_dir = output_root / datetime.now().strftime("%H_%M_%S_%d_%m_%Y")
+    return run_dir
+
+
+def _latest_checkpoint_run_dir(output_root: Path) -> Path | None:
+    checkpoints = list(output_root.rglob("weights/epoch_*.pth"))
+    if not checkpoints:
+        return None
+    latest_checkpoint = max(checkpoints, key=lambda path: path.stat().st_mtime)
+    return latest_checkpoint.parent.parent
 
 
 def _load_yaml_config(args) -> dict:
@@ -99,7 +121,7 @@ def _truncate_meta(meta_dir: Path, tmp_dir: Path, fold: int, n_rows: int) -> Pat
 
 
 def _run_torchrun(config_path: Path, meta_dir: Path, feat_file: Path, output_dir: Path,
-                   fold: int, exp_idx: int, seed: int, num_gpu: int) -> None:
+                   fold: int, exp_idx: int, seed: int, num_gpu: int, resume: bool) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(MOLEX_SRC) + os.pathsep + env.get("PYTHONPATH", "")
@@ -114,6 +136,8 @@ def _run_torchrun(config_path: Path, meta_dir: Path, feat_file: Path, output_dir
         "--exp_idx", str(exp_idx),
         "--seed", str(seed),
     ]
+    if resume:
+        cmd.append("--resume")
     subprocess.run(cmd, cwd=str(MOLEX_DIR), env=env, check=True)
 
 
@@ -123,7 +147,15 @@ def train(args) -> None:
     fold = cfg["paths"]["fold"]
     exp_idx = cfg["paths"]["exp_idx"]
     num_gpu = int(os.environ.get("MOLEX_NUM_GPU", cfg["runtime"]["num_gpu"]))
-    output_dir = REPO_ROOT / cfg["paths"]["output_dir"]
+    output_root = _output_root()
+    if args.resume:
+        output_dir = _latest_checkpoint_run_dir(output_root)
+        if output_dir is None:
+            raise FileNotFoundError(f"No MoLEx checkpoint found under {output_root} for --resume.")
+        print(f"[molex] Resuming from run directory: {output_dir}")
+    else:
+        output_dir = _new_run_dir(output_root)
+        print(f"[molex] Starting a new run directory: {output_dir}")
 
     num_epochs = None
     with tempfile.TemporaryDirectory(prefix="molex_run_") as tmp:
@@ -140,7 +172,7 @@ def train(args) -> None:
         with open(config_path, "w") as f:
             json.dump(_json_config(cfg, num_epochs), f, indent=2)
 
-        _run_torchrun(config_path, meta_dir, feat_file, output_dir, fold, exp_idx, args.seed, num_gpu)
+        _run_torchrun(config_path, meta_dir, feat_file, output_dir, fold, exp_idx, args.seed, num_gpu, args.resume)
 
 
 def _load_model_and_eval_loader(cfg: dict, args):
@@ -161,10 +193,13 @@ def _load_model_and_eval_loader(cfg: dict, args):
     model_class = getattr(importlib.import_module("model_MOE"), model_config["model_name"])
     model = model_class(model_config)
 
-    ckpt_path = Path(args.ckpt) if args.ckpt else (
-        REPO_ROOT / cfg["paths"]["output_dir"] / f"Exp_{cfg['paths']['exp_idx']}"
-        / "weights" / "averaged_checkpoint.pth"
-    )
+    if args.ckpt:
+        ckpt_path = Path(args.ckpt)
+    else:
+        run_dir = _latest_checkpoint_run_dir(_output_root())
+        if run_dir is None:
+            raise FileNotFoundError(f"No MoLEx checkpoint found under {_output_root()}.")
+        ckpt_path = run_dir / "weights" / "averaged_checkpoint.pth"
     # Checkpoints saved by main_molex.run_train come from a DDP-wrapped model
     # (model = DDP(model, ...)), so keys are prefixed with "module.".
     state_dict = torch.load(ckpt_path, map_location="cpu")
@@ -182,7 +217,9 @@ def _run_eval(args, compute_eer: bool) -> None:
     model, eval_loader, device = _load_model_and_eval_loader(cfg, args)
     from main_molex import compute_nist_eer, produce_evaluation_file  # noqa: E402
 
-    output_dir = REPO_ROOT / cfg["paths"]["output_dir"] / f"Exp_{cfg['paths']['exp_idx']}"
+    output_dir = _latest_checkpoint_run_dir(_output_root())
+    if output_dir is None:
+        output_dir = _output_root()
     output_dir.mkdir(parents=True, exist_ok=True)
     score_path = output_dir / ("eval_output.txt" if compute_eer else "score.txt")
 

@@ -32,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dry-run", action="store_true",
                     help="Smoke test: same as --max-steps with a small built-in default.")
     p.add_argument("--ckpt", default=None, help="Checkpoint path for --mode eval/score.")
+    p.add_argument("--resume", action="store_true",
+                    help="Resume training from the latest checkpoint for the selected baseline.")
     return p.parse_args()
 
 

@@ -38,6 +38,18 @@ from utils import create_optimizer, seed_worker, set_seed
 warnings.filterwarnings("ignore", category=FutureWarning)
 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+
+def append_run_log(run_log_path, message):
+    with open(run_log_path, 'a') as file:
+        file.write(message + "\n")
+
+
+def log_rank0(rank, run_log_path, message):
+    if rank == 0:
+        print(message, flush=True)
+        append_run_log(run_log_path, message)
+
+
 def cleanup():
     """Tear down the distributed process group."""
     if dist.is_initialized():
@@ -83,37 +95,55 @@ def run_train(args):
     dev_trial_path = (meta_path / f"fold{fold_id}_validation.tsv")
     eval_trial_path = (meta_path / f"fold{fold_id}_evaluation.tsv")
 
-    exp_idx = args.exp_idx
-    model_tag = "Exp_" + f"{exp_idx}"
-
-    model_tag = output_dir / model_tag    
+    model_tag = output_dir
     model_save_path = model_tag / "weights"
-    eval_score_path = model_tag / "eval_output"
+    run_log_path = model_tag / "run.log"
     
     os.makedirs(model_save_path, exist_ok=True)
-    copy(args.config, model_tag / "config.conf")
+    if rank == 0:
+        copy(args.config, model_tag / "config.conf")
+        copy(args.config, model_tag / "hyperparameters.json")
+        append_run_log(run_log_path, "=" * 80)
+        append_run_log(run_log_path, f"Run started at {current_time}")
+        append_run_log(run_log_path, f"Run directory: {model_tag}")
+        append_run_log(run_log_path, f"Config: {args.config}")
+        append_run_log(run_log_path, f"Meta dir: {meta_path}")
+        append_run_log(run_log_path, f"Feature file: {feat_file}")
+        append_run_log(run_log_path, f"Resume requested: {args.resume}")
+        append_run_log(run_log_path, "=" * 80)
 
 
     import importlib
     model_name = model_config['model_name']
     model_class = getattr(importlib.import_module('model_MOE'), model_name)
-    print("Run the model:", model_class)
+    log_rank0(rank, run_log_path, f"[setup] Run the model: {model_class}")
+    log_rank0(rank, run_log_path, "[setup] Initializing model and loading WavLM checkpoint...")
 
     model = model_class(model_config)
+    log_rank0(rank, run_log_path, "[setup] Model initialized.")
 
     class_head_param = list(model.decoder.parameters()) + (list(model.featfusion.parameters()) if hasattr(model, 'featfusion') else [])
     lora_adapt_param = (model.get_MOE_param_list() if hasattr(model, 'num_MOE_layer') else [])
     params_backend = [lora_adapt_param, class_head_param]
+    log_rank0(rank, run_log_path, "[setup] Parameter groups prepared.")
 
 
     model = model.to(device)
     model = DDP(model, device_ids=[device_id],find_unused_parameters=True)
+    log_rank0(rank, run_log_path, f"[setup] Model moved to {device} and wrapped with DDP.")
 
 
     # define dataloaders
+    log_rank0(rank, run_log_path, "[data] Building train/validation/evaluation dataloaders...")
     trn_loader, dev_loader, eval_loader, train_sampler = get_DDP_loader(args, feat_file, trn_list_path,
                                                      dev_trial_path, eval_trial_path,
                                                      args.seed, config)
+    log_rank0(
+        rank,
+        run_log_path,
+        f"[data] Dataloaders ready: train_batches={len(trn_loader)}, "
+        f"valid_batches={len(dev_loader)}, eval_batches={len(eval_loader)}."
+    )
 
 
     # get optimizer and scheduler
@@ -123,11 +153,16 @@ def run_train(args):
     os.makedirs(metric_path, exist_ok=True)
 
     # Training
+    log_rank0(rank, run_log_path, "[setup] Creating optimizer and scheduler...")
     optimizer, scheduler= create_optimizer(params_backend, optim_config)    
+    log_rank0(rank, run_log_path, "[setup] Optimizer and scheduler created.")
 
-    resume_checkpoint_path, start_epoch = find_latest_epoch_checkpoint(model_save_path)
-    best_dev_eer = read_best_dev_eer(model_tag)
-    if resume_checkpoint_path is not None:
+    if args.resume:
+        log_rank0(rank, run_log_path, "[resume] Searching for the latest epoch checkpoint...")
+        resume_checkpoint_path, start_epoch = find_latest_epoch_checkpoint(model_save_path)
+        best_dev_eer = read_best_dev_eer(model_tag)
+        if resume_checkpoint_path is None:
+            raise FileNotFoundError(f"--resume was requested, but no epoch checkpoint was found in {model_save_path}")
         checkpoint = torch.load(resume_checkpoint_path, map_location=device)
         if isinstance(checkpoint, dict) and "model" in checkpoint:
             checkpoint = checkpoint["model"]
@@ -139,21 +174,25 @@ def run_train(args):
             if scheduler is not None and training_state.get("scheduler") is not None:
                 scheduler.load_state_dict(training_state["scheduler"])
             best_dev_eer = training_state.get("best_dev_eer", best_dev_eer)
-            print(f"Loaded optimizer/scheduler state from {training_state_path}.")
+            log_rank0(rank, run_log_path, f"[resume] Loaded optimizer/scheduler state from {training_state_path}.")
         else:
-            print(f"No optimizer/scheduler state found at {training_state_path}; resuming model weights only.")
-        print(f"Resumed model from {resume_checkpoint_path}; starting at epoch {start_epoch:03d}.")
+            log_rank0(rank, run_log_path, f"[resume] No optimizer/scheduler state found at {training_state_path}; resuming model weights only.")
+        log_rank0(rank, run_log_path, f"[resume] Resumed model from {resume_checkpoint_path}; starting at epoch {start_epoch:03d}.")
     else:
         start_epoch = 0
         best_dev_eer = float("inf")
+        log_rank0(rank, run_log_path, "[resume] Resume disabled; training from scratch.")
 
     if start_epoch >= config["num_epochs"]:
-        print(
+        log_rank0(
+            rank,
+            run_log_path,
             f"Latest checkpoint is epoch {start_epoch - 1:03d}; "
             f"num_epochs={config['num_epochs']}, so no additional training epochs are required."
         )
 
     for epoch in range(start_epoch, config["num_epochs"]):
+        log_rank0(rank, run_log_path, f"Start training epoch{epoch:03d}")
 
         running_loss = 0
         running_ortho_loss = 0
@@ -187,11 +226,12 @@ def run_train(args):
 
             # add orthogonal loss
             orth_loss = sum(lora_orthogonality_loss(layer.smoe.experts) for layer in model.module.ssl_model.encoder.layers if hasattr(layer, 'smoe')) if any(hasattr(layer, 'smoe') for layer in model.module.ssl_model.encoder.layers) else 0
+            orth_loss_value = float(orth_loss.detach().item()) if torch.is_tensor(orth_loss) else float(orth_loss)
             batch_loss = batch_loss + orth_loss*0.01
 
 
             running_loss += batch_loss.item() * batch_size    
-            running_ortho_loss += orth_loss * batch_size 
+            running_ortho_loss += orth_loss_value * batch_size
 
             batch_loss.backward()
 
@@ -200,7 +240,7 @@ def run_train(args):
             if rank == 0:
                 train_iter.set_postfix(
                     loss=f"{batch_loss.item():.4f}",
-                    orth=f"{float(orth_loss):.4f}" if not isinstance(orth_loss, int) else "0.0000",
+                    orth=f"{orth_loss_value:.4f}",
                 )
 
         running_loss /= num_total       
@@ -233,6 +273,12 @@ def run_train(args):
                 save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_eer)
              
             save_logs(epoch, scheduler.get_last_lr(), model_tag, running_loss, dev_eer, valid_loss, running_ortho_loss)
+            append_run_log(
+                run_log_path,
+                f"Epoch {epoch:03d}: train_loss={running_loss:.6f}, "
+                f"orth_loss={float(running_ortho_loss):.6f}, valid_loss={valid_loss:.6f}, "
+                f"dev_eer={dev_eer:.6f}, lr={scheduler.get_last_lr()[0]:.8f}"
+            )
 
 
     # Evaluation with the best model
@@ -248,6 +294,8 @@ def run_train(args):
                                 disable=False)
         eval_eer, _ = compute_nist_eer(sc_file=eval_score_path,
                                     output_file=metric_path / "eval_best.txt")
+        append_run_log(run_log_path, f"Final eval: eval_loss={eval_loss:.6f}, eval_eer={eval_eer:.6f}")
+        append_run_log(run_log_path, f"Run finished at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
     cleanup()
@@ -367,7 +415,7 @@ def read_best_dev_eer(model_tag):
 
 def save_logs(epoch, current_lr,model_tag,running_loss,dev_eer,valid_loss,running_ortho_loss):
 
-    print("Start training epoch{:03d}".format(epoch))
+    print("Finished epoch{:03d}".format(epoch))
 
     with open(model_tag/'loss_history.txt', 'a') as file:
         file.write(f'Epoch {epoch + 1}: {running_loss}\n')
@@ -436,6 +484,7 @@ def get_DDP_loader(
 
     eval_keys, eval_labs, eval_paths = gen_cyber_list(meta_file=eval_trial_path,
                                                       feat_file=feat_file)
+    print("no. evaluation files:", len(eval_keys))
     eval_set = CyberEvalDataset(list_ids=eval_keys,
                                 labels=eval_labs,
                                 file_paths=eval_paths)
@@ -597,6 +646,10 @@ if __name__ == "__main__":
                         type=int,
                         default=0,
                         help="index of running experiment")    
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="resume from the latest epoch checkpoint in the output directory")
     
 
     run_train(parser.parse_args())
