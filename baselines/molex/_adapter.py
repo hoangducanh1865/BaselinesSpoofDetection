@@ -46,10 +46,10 @@ def _output_root() -> Path:
 
 
 def _new_run_dir(output_root: Path) -> Path:
-    run_dir = output_root / datetime.now().strftime("%H_%M_%S_%d_%m_%Y")
+    run_dir = output_root / datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     while run_dir.exists():
         time.sleep(1)
-        run_dir = output_root / datetime.now().strftime("%H_%M_%S_%d_%m_%Y")
+        run_dir = output_root / datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     return run_dir
 
 
