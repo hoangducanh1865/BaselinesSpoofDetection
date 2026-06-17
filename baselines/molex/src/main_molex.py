@@ -158,11 +158,13 @@ def run_train(args):
     log_rank0(rank, run_log_path, "[setup] Optimizer and scheduler created.")
 
     if args.resume:
-        log_rank0(rank, run_log_path, "[resume] Searching for the latest epoch checkpoint...")
-        resume_checkpoint_path, start_epoch = find_latest_epoch_checkpoint(model_save_path)
+        log_rank0(rank, run_log_path, "[resume] Searching for the latest resume checkpoint...")
+        resume_checkpoint_path, start_epoch = find_latest_resume_checkpoint(model_save_path)
         best_dev_eer = read_best_dev_eer(model_tag)
         if resume_checkpoint_path is None:
-            raise FileNotFoundError(f"--resume was requested, but no epoch checkpoint was found in {model_save_path}")
+            raise FileNotFoundError(
+                f"--resume was requested, but no latest_checkpoint_epoch_*.pth file was found in {model_save_path}"
+            )
         checkpoint = torch.load(resume_checkpoint_path, map_location=device)
         if isinstance(checkpoint, dict) and "model" in checkpoint:
             checkpoint = checkpoint["model"]
@@ -258,6 +260,8 @@ def run_train(args):
         scheduler.step()
 
         if rank == 0:
+            save_latest_resume_checkpoint(model_save_path, epoch, model)
+
             saved_checkpoint = False
             if math.isfinite(dev_eer) and dev_eer <= best_dev_eer:
                 best_dev_eer = dev_eer
@@ -269,9 +273,8 @@ def run_train(args):
                     model_save_path / f"epoch_{epoch}_fallback.pth")
                 saved_checkpoint = True
 
-            if saved_checkpoint:
-                save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_eer)
-             
+            save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_eer)
+
             save_logs(epoch, scheduler.get_last_lr(), model_tag, running_loss, dev_eer, valid_loss, running_ortho_loss)
             append_run_log(
                 run_log_path,
@@ -283,6 +286,9 @@ def run_train(args):
 
     # Evaluation with the best model
     if rank == 0:
+        delete_latest_resume_checkpoints(model_save_path)
+        append_run_log(run_log_path, "Deleted latest resume checkpoint after completed training.")
+
         best_checkpoint_path = merge_checkpoint(model_tag, model_save_path)
         
         model.load_state_dict(torch.load(best_checkpoint_path, map_location=device))
@@ -323,6 +329,13 @@ def checkpoint_epoch(checkpoint_path):
     return int(match.group(1))
 
 
+def latest_resume_checkpoint_epoch(checkpoint_path):
+    match = re.match(r"latest_checkpoint_epoch_(\d+)\.pth$", checkpoint_path.name)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
 def find_latest_epoch_checkpoint(model_save_path):
     epoch_checkpoints = []
     for checkpoint_path in model_save_path.glob("epoch_*.pth"):
@@ -337,8 +350,32 @@ def find_latest_epoch_checkpoint(model_save_path):
     return latest_checkpoint_path, latest_epoch + 1
 
 
+def find_latest_resume_checkpoint(model_save_path):
+    resume_checkpoints = []
+    for checkpoint_path in model_save_path.glob("latest_checkpoint_epoch_*.pth"):
+        epoch = latest_resume_checkpoint_epoch(checkpoint_path)
+        if epoch is not None:
+            resume_checkpoints.append((epoch, checkpoint_path))
+
+    if not resume_checkpoints:
+        return None, 0
+
+    latest_epoch, latest_checkpoint_path = max(resume_checkpoints, key=lambda item: item[0])
+    return latest_checkpoint_path, latest_epoch + 1
+
+
 def get_training_state_path(model_save_path, epoch):
     return model_save_path / f"training_state_epoch_{epoch}.pth"
+
+
+def delete_latest_resume_checkpoints(model_save_path):
+    for checkpoint_path in model_save_path.glob("latest_checkpoint_epoch_*.pth"):
+        checkpoint_path.unlink()
+
+
+def save_latest_resume_checkpoint(model_save_path, epoch, model):
+    delete_latest_resume_checkpoints(model_save_path)
+    torch.save(model.state_dict(), model_save_path / f"latest_checkpoint_epoch_{epoch}.pth")
 
 
 def save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_eer):

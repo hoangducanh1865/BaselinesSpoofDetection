@@ -61,6 +61,31 @@ def _latest_checkpoint_run_dir(output_root: Path) -> Path | None:
     return latest_checkpoint.parent.parent
 
 
+def _latest_run_dir(output_root: Path) -> Path | None:
+    if not output_root.exists():
+        return None
+    run_dirs = [
+        path for path in output_root.iterdir()
+        if path.is_dir() and (path / "weights").is_dir()
+    ]
+    if not run_dirs:
+        return None
+    return sorted(run_dirs, key=lambda path: path.name)[-1]
+
+
+def _resume_run_dir(output_root: Path, resume_arg: str) -> Path:
+    if resume_arg == "latest":
+        run_dir = _latest_run_dir(output_root)
+        if run_dir is None:
+            raise FileNotFoundError(f"No MoLEx run directory found under {output_root} for --resume.")
+        return run_dir
+
+    run_dir = output_root / resume_arg
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"MoLEx resume run directory does not exist: {run_dir}")
+    return run_dir
+
+
 def _load_yaml_config(args) -> dict:
     config_path = Path(args.config) if args.config else REPO_ROOT / "configs" / "molex.yaml"
     with open(config_path) as f:
@@ -121,7 +146,7 @@ def _truncate_meta(meta_dir: Path, tmp_dir: Path, fold: int, n_rows: int) -> Pat
 
 
 def _run_torchrun(config_path: Path, meta_dir: Path, feat_file: Path, output_dir: Path,
-                   fold: int, exp_idx: int, seed: int, num_gpu: int, resume: bool) -> None:
+                   fold: int, exp_idx: int, seed: int, num_gpu: int, resume: str | None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(MOLEX_SRC) + os.pathsep + env.get("PYTHONPATH", "")
@@ -149,9 +174,7 @@ def train(args) -> None:
     num_gpu = int(os.environ.get("MOLEX_NUM_GPU", cfg["runtime"]["num_gpu"]))
     output_root = _output_root()
     if args.resume:
-        output_dir = _latest_checkpoint_run_dir(output_root)
-        if output_dir is None:
-            raise FileNotFoundError(f"No MoLEx checkpoint found under {output_root} for --resume.")
+        output_dir = _resume_run_dir(output_root, args.resume)
         print(f"[molex] Resuming from run directory: {output_dir}")
     else:
         output_dir = _new_run_dir(output_root)
