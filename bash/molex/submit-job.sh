@@ -20,7 +20,11 @@ RESUME="${RESUME:-}"
 cd "${REPO_DIR}"
 mkdir -p logs/molex
 
+# Some conda activation hooks reference unset MKL variables; keep strict mode
+# for the job itself, but allow conda's shell hooks to initialize normally.
+set +u
 source /home/user14/miniconda3/bin/activate "${CONDA_ENV}"
+set -u
 
 export MOLEX_NUM_GPU="${MOLEX_NUM_GPU:-1}"
 export WANDB_LOG_INTERVAL="${WANDB_LOG_INTERVAL:-100}"
