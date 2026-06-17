@@ -9,7 +9,7 @@
 # config rather than editing baselines/molex/configs/molex_ssl.conf in place.
 
 batch_size: 16
-num_epochs: 30
+num_epochs: 2
 
 cudnn_deterministic_toggle: true
 cudnn_benchmark_toggle: false
