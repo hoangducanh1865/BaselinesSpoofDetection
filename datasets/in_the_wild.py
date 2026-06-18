@@ -11,13 +11,14 @@ def _metadata_is_valid(eval_path: Path, wav_scp_path: Path) -> bool:
 
     eval_df = pd.read_csv(eval_path, sep="\t")
     eval_keys = set(eval_df.iloc[:, 0].astype(str))
+    eval_labels = set(eval_df.iloc[:, 1].astype(str).str.lower())
     scp_keys = set()
     with open(wav_scp_path) as f:
         for line in f:
             parts = line.strip().split(maxsplit=1)
             if parts:
                 scp_keys.add(parts[0])
-    return bool(eval_keys) and eval_keys <= scp_keys
+    return bool(eval_keys) and eval_keys <= scp_keys and eval_labels <= {"bonafide", "spoof"}
 
 
 def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: bool = False) -> None:
@@ -42,7 +43,13 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
     # where the first whitespace-delimited token is the utterance ID, so generate
     # compact IDs instead of deriving IDs from filenames.
     df["utt_id"] = [f"itw_{idx:06d}" for idx in range(len(df))]
-    df["label"] = df["label"].astype(str).str.lower()
+    df["label"] = (
+        df["label"]
+        .astype(str)
+        .str.lower()
+        .str.strip()
+        .replace({"bona-fide": "bonafide", "bona_fide": "bonafide"})
+    )
 
     df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
 
