@@ -5,6 +5,21 @@ from pathlib import Path
 import pandas as pd
 
 
+def _metadata_is_valid(eval_path: Path, wav_scp_path: Path) -> bool:
+    if not eval_path.exists() or not wav_scp_path.exists():
+        return False
+
+    eval_df = pd.read_csv(eval_path, sep="\t")
+    eval_keys = set(eval_df.iloc[:, 0].astype(str))
+    scp_keys = set()
+    with open(wav_scp_path) as f:
+        for line in f:
+            parts = line.strip().split(maxsplit=1)
+            if parts:
+                scp_keys.add(parts[0])
+    return bool(eval_keys) and eval_keys <= scp_keys
+
+
 def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: bool = False) -> None:
     """Write fold{fold}_evaluation.tsv + wav.scp under meta_dir.
 
@@ -19,11 +34,14 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
 
     eval_path = meta_dir / f"fold{fold}_evaluation.tsv"
     wav_scp_path = meta_dir / "wav.scp"
-    if not force and eval_path.exists() and wav_scp_path.exists():
+    if not force and _metadata_is_valid(eval_path, wav_scp_path):
         return
 
     df = pd.read_csv(data_root / "meta.csv")
-    df["utt_id"] = df["file"].map(lambda name: Path(str(name)).stem)
+    # In-The-Wild filenames may contain spaces. MoLEx uses Kaldi-style wav.scp
+    # where the first whitespace-delimited token is the utterance ID, so generate
+    # compact IDs instead of deriving IDs from filenames.
+    df["utt_id"] = [f"itw_{idx:06d}" for idx in range(len(df))]
     df["label"] = df["label"].astype(str).str.lower()
 
     df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
