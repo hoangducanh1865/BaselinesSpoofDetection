@@ -211,8 +211,27 @@ def _load_model_and_eval_loader(cfg: dict, args):
     eval_keys, eval_labs, eval_paths = gen_cyber_list(
         meta_file=meta_dir / f"fold{fold}_evaluation.tsv", feat_file=feat_file)
     eval_set = CyberEvalDataset(list_ids=eval_keys, labels=eval_labs, file_paths=eval_paths)
-    eval_loader = DataLoader(eval_set, batch_size=cfg["batch_size"], shuffle=False,
-                              drop_last=False, pin_memory=True, num_workers=4)
+    runtime_cfg = cfg.get("runtime", {})
+    eval_batch_size = int(os.environ.get(
+        "MOLEX_EVAL_BATCH_SIZE",
+        runtime_cfg.get("eval_batch_size", cfg["batch_size"]),
+    ))
+    eval_num_workers = int(os.environ.get(
+        "MOLEX_EVAL_NUM_WORKERS",
+        runtime_cfg.get("eval_num_workers", 4),
+    ))
+    eval_loader = DataLoader(
+        eval_set,
+        batch_size=eval_batch_size,
+        shuffle=False,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=eval_num_workers,
+    )
+    print(
+        f"[molex] Evaluation files: {len(eval_set)}, "
+        f"batch_size={eval_batch_size}, num_workers={eval_num_workers}"
+    )
 
     model_config = cfg["model_config"]
     model_class = getattr(importlib.import_module("model_MOE"), model_config["model_name"])

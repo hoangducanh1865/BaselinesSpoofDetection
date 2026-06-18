@@ -62,3 +62,7 @@ runtime:
   num_gpu: 1
   # Log W&B batch metrics every N train batches. This does not change training math.
   wandb_log_interval: 100
+  # Evaluation does not compute gradients, so it can safely use larger batches
+  # than training. Override via MOLEX_EVAL_BATCH_SIZE / MOLEX_EVAL_NUM_WORKERS.
+  eval_batch_size: 128
+  eval_num_workers: 16
