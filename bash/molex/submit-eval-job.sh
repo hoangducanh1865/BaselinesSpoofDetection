@@ -57,12 +57,12 @@ run_eval() {
 
 case "${SCENARIO}" in
   all)
-    run_eval asv5_on_asvspoof5 asvspoof5 "${CKPT_ASV5}"
-    run_eval asv5_on_asvspoof2019la asvspoof2019la "${CKPT_ASV5}"
     run_eval asv5_on_in_the_wild in_the_wild "${CKPT_ASV5}"
+    run_eval asv5_on_asvspoof2019la asvspoof2019la "${CKPT_ASV5}"
+    run_eval asv5_on_asvspoof5 asvspoof5 "${CKPT_ASV5}"
+    run_eval asv2019_on_in_the_wild in_the_wild "${CKPT_2019}"
     run_eval asv2019_on_asvspoof2019la asvspoof2019la "${CKPT_2019}"
     run_eval asv2019_on_asvspoof5 asvspoof5 "${CKPT_2019}"
-    run_eval asv2019_on_in_the_wild in_the_wild "${CKPT_2019}"
     ;;
   asv5_on_asvspoof5)
     run_eval "${SCENARIO}" asvspoof5 "${CKPT_ASV5}"
