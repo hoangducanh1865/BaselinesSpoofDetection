@@ -38,6 +38,7 @@ DATASET_MODULES = {
     "asvspoof5": ("datasets.asvspoof5", None),
     "asvspoof2019la": ("datasets.asvspoof2019", "LA"),
     "asvspoof2019pa": ("datasets.asvspoof2019", "PA"),
+    "in_the_wild": ("datasets.in_the_wild", None),
 }
 
 
@@ -233,19 +234,27 @@ def _load_model_and_eval_loader(cfg: dict, args):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
-    return model, eval_loader, device
+    return model, eval_loader, device, ckpt_path
+
+
+def _eval_output_dir(args, ckpt_path: Path) -> Path:
+    checkpoint_run = ckpt_path.parent.parent.name if ckpt_path.parent.name == "weights" else ckpt_path.stem
+    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    return _output_root() / "evals" / f"{timestamp}__{checkpoint_run}__on__{args.dataset}"
 
 
 def _run_eval(args, compute_eer: bool) -> None:
     cfg = _load_yaml_config(args)
-    model, eval_loader, device = _load_model_and_eval_loader(cfg, args)
+    model, eval_loader, device, ckpt_path = _load_model_and_eval_loader(cfg, args)
     from main_molex import compute_nist_eer, produce_evaluation_file  # noqa: E402
 
-    output_dir = _latest_checkpoint_run_dir(_output_root())
-    if output_dir is None:
-        output_dir = _output_root()
+    output_dir = _eval_output_dir(args, ckpt_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     score_path = output_dir / ("eval_output.txt" if compute_eer else "score.txt")
+
+    with open(output_dir / "eval_config.txt", "w") as f:
+        f.write(f"dataset={args.dataset}\n")
+        f.write(f"checkpoint={ckpt_path}\n")
 
     produce_evaluation_file(eval_loader, model, device, score_path)
     print(f"Scores written to {score_path}")

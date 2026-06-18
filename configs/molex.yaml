@@ -50,6 +50,7 @@ paths:
     asvspoof5: /home/user14/anhhd/spoof/datasets/asvspoof5
     asvspoof2019la: /home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
     asvspoof2019pa: /home/user14/anhhd/spoof/datasets/asvspoof2019/PA/PA
+    in_the_wild: /home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild
   meta_root: outputs/molex/meta
   output_dir: outputs/molex/runs
   fold: 1

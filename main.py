@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from baselines import REGISTRY
 
-DATASETS = ["asvspoof5", "asvspoof2019la", "asvspoof2019pa"]
+DATASETS = ["asvspoof5", "asvspoof2019la", "asvspoof2019pa", "in_the_wild"]
 MODES = ["train", "eval", "score"]
 
 
