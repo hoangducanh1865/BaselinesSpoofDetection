@@ -12,7 +12,7 @@ Danh sach tai lieu:
 
 - [AASIST](./aasist.md)
 - [wav2vec2_aasist](./wav2vec2_aasist.md)
-- [SLS](./sls.md)
+- [XLSR-SLS](./xlsr_sls.md)
 - [MoLEx](./molex.md)
 - [Nes2Net](./nes2net.md)
 - [Evolving AASIST](./eaasist.md)
