@@ -25,7 +25,7 @@ model_config:
   Finetune_id: "False"
   nb_samp: 64600
   # Overridable via env MOLEX_WAVLM_CHECKPOINT.
-  wavlm_checkpoint: /home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large/WavLM-Large.pt
+  wavlm_checkpoint: /home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large__mrdragonfox__llase_g1/pytorch_model.bin
 
 optim_config:
   optimizer: adamw_separate

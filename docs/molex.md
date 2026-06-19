@@ -14,14 +14,14 @@ conda activate molex_anhhd
 Checkpoint SSL can co:
 
 ```text
-/home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large/WavLM-Large.pt
+/home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large__mrdragonfox__llase_g1/pytorch_model.bin
 ```
 
 Duong dan nay da duoc cau hinh trong `configs/molex.yaml`:
 
 ```yaml
 model_config:
-  wavlm_checkpoint: /home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large/WavLM-Large.pt
+  wavlm_checkpoint: /home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large__mrdragonfox__llase_g1/pytorch_model.bin
 ```
 
 ## Dataset dang ho tro
