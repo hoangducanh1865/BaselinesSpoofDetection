@@ -2,7 +2,7 @@
 # None means the baseline folder exists under baselines/ but isn't wired up yet.
 REGISTRY = {
     "molex": "baselines.molex._adapter",
-    "aasist": None,
+    "aasist": "baselines.aasist._adapter",
     "eaasist": None,
     "moef": None,
     "moef_icassp": None,
