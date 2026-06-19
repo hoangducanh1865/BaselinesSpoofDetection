@@ -3,6 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "${script_dir}/../.." && pwd)"
+cd "${script_dir}"
 
 gpu="${1:-0}"
 module_model="${2:-w2v2_moe_fz24_aasist}"

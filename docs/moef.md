@@ -5,89 +5,101 @@ MoEF nam o `baselines/moef_icassp`.
 Ket luan sau khi doi chieu voi paper `stuff/reference_papers/moef/moef.pdf`:
 
 - Nen dung `baselines/moef_icassp`, khong phai `baselines/moef`.
-- `baselines/moef_icassp` co dung file MoE paper can: `models/moe_research/w2v2_moe_fz24_aasist.py`, `models/tl_model_moe.py`, `main_loss.py`, va script `moe_run.sh`.
-- SSL front-end duoc dong bang; chi train MoE fusion va classifier.
+- `baselines/moef` la repo/framework goc va README cua no con ghi can checkout branch `icassp`; mot so path/import van la placeholder.
+- `baselines/moef_icassp` moi co dung cac file MoE paper can: `models/moe_research/w2v2_moe_fz24_aasist.py`, `models/tl_model_moe.py`, `main_loss.py`, checkpoint/log ICASSP mau va script `moe_run.sh`.
 
 ## Setup khop paper
 
 Paper `Mixture of Experts Fusion for Fake Audio Detection Using Frozen wav2vec 2.0` dung:
 
-- SSL front-end: frozen wav2vec 2.0 / SSL hidden features.
+- Train set: ASVspoof2019 LA train.
+- Validation: ASVspoof2019 LA dev.
+- SSL front-end: wav2vec 2.0 / XLS-R 300M, frozen.
 - Feature fusion: 24 hidden features, gating bang last hidden state.
 - Classifier: AASIST.
 - Audio length: `64600` samples.
 - Data augmentation: RawBoost algorithm 3.
-- Optimizer: AdamW, `lr=1e-5`.
+- Optimizer: AdamW, `lr=1e-5` khi frozen SSL.
 - Scheduler: cosine warmup, `num_warmup_steps=3`.
 - Batch size: `4`.
 - Epochs: `50`.
 - Early stopping patience: `3`.
 - MoE config: `topk=2`, `experts_per_layer=4`, `expert_hidden=128`.
 
+Script da setup theo cac gia tri tren:
+
+```text
+baselines/moef_icassp/moe_run.sh
+```
+
+Model chuan paper la:
+
+```text
+models.moe_research.w2v2_moe_fz24_aasist
+```
+
 ## Pretrained SSL model
 
-Theo setup server hien tai, MoEF dung local HuggingFace folder:
+MoEF dung `transformers.Wav2Vec2Model.from_pretrained`, vi vay can mot thu muc HuggingFace snapshot cua:
 
 ```text
-/home/user14/anhhd/spoof/pretrained_ssl_models/wav2vec2_large_lv60
+facebook/wav2vec2-xls-r-300m
 ```
 
-Folder nay can co:
+Luu y: file fairseq `/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt` khong dung truc tiep cho baseline nay.
 
-```text
-config.json
-preprocessor_config.json
-pytorch_model.bin
-README.md
-```
-
-Export neu can override:
+Neu server chua co HF snapshot, tai ve nhu sau:
 
 ```bash
-export MOEF_WAV2VEC2_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/wav2vec2_large_lv60
+cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
+conda activate moef_anhhd
+
+python - <<'PY'
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="facebook/wav2vec2-xls-r-300m",
+    local_dir="/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m_hf",
+    local_dir_use_symlinks=False,
+)
+PY
+```
+
+Sau do export:
+
+```bash
+export MOEF_XLSR_HF_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m_hf
 ```
 
 ## Dataset tren server
 
-Mac dinh:
+Mac dinh code da tro toi:
 
 ```text
-ASVspoof2019 LA: /home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
-ASVspoof5:       /home/user14/anhhd/spoof/datasets/asvspoof5
+/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
 ```
 
-Override neu can:
+Co the override bang:
 
 ```bash
 export MOEF_ASVSPOOF2019_LA_ROOT=/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
-export MOEF_ASVSPOOF5_ROOT=/home/user14/anhhd/spoof/datasets/asvspoof5
 ```
 
-## WandB va checkpoint
+Can co cac file:
 
-MoEF da co co che tuong tu MoLEx:
-
-- Moi run moi luu vao `outputs/moef/YYYY_MM_DD_HH_MM_SS`.
-- Trong run dir co `hyperparameters.yaml`, `hyperparameters.json`, `wandb_run_id.txt`.
-- Checkpoint best nam trong `outputs/moef/<run>/checkpoints/`.
-- Trong khi train co them `latest_checkpoint_epoch_<N>.ckpt` de resume day du optimizer/scheduler.
-- Khi train ket thuc binh thuong, file latest checkpoint se duoc xoa de tranh lan voi best checkpoint.
-- Resume cung folder se dung lai `wandb_run_id.txt`, nen WandB tiep tuc log vao cung mot run.
-
-Can co `.env` hoac bien moi truong:
-
-```bash
-export WANDB_API_KEY="..."
-export WANDB_PROJECT=spoof-detection
-```
-
-Tat WandB:
-
-```bash
-export WANDB_MODE=disabled
+```text
+ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt
+ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.dev.trl.txt
+ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.eval.trl.txt
+ASVspoof2019_LA_asv_scores/ASVspoof2019.LA.asv.dev.gi.trl.scores.txt
+ASVspoof2019_LA_train/flac/*.flac
+ASVspoof2019_LA_dev/flac/*.flac
+ASVspoof2019_LA_eval/flac/*.flac
 ```
 
 ## Tao moi truong
+
+Khuyen nghi tao env rieng de tranh va cham voi `molex_anhhd` / `nes2net_anhhd`:
 
 ```bash
 cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
@@ -96,7 +108,6 @@ conda create -n moef_anhhd python=3.8 -y
 conda activate moef_anhhd
 
 pip install -r baselines/moef_icassp/requirement.txt
-pip install wandb python-dotenv
 ```
 
 Kiem tra nhanh:
@@ -106,108 +117,46 @@ python - <<'PY'
 import torch
 import lightning
 import transformers
-import wandb
+import soundfile
 print("torch", torch.__version__)
 print("lightning", lightning.__version__)
 print("transformers", transformers.__version__)
-print("wandb", wandb.__version__)
 PY
 ```
 
 ## Train truc tiep tren server
 
-Train ASVspoof2019 LA:
+Chay trong `tmux` / `screen` neu khong submit job:
 
 ```bash
 cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
 git pull
 conda activate moef_anhhd
 
-export MOEF_WAV2VEC2_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/wav2vec2_large_lv60
 export MOEF_ASVSPOOF2019_LA_ROOT=/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
+export MOEF_XLSR_HF_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m_hf
 export TOKENIZERS_PARALLELISM=false
 
 cd baselines/moef_icassp
-DATASET=asvspoof2019la bash moe_run.sh 0
+bash moe_run.sh 0 w2v2_moe_fz24_aasist a_log/w2v2_moe_fz24_aasist/2_4_128
 ```
 
-Train ASVspoof5:
+Trong do:
 
-```bash
-cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
-git pull
-conda activate moef_anhhd
-
-export MOEF_WAV2VEC2_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/wav2vec2_large_lv60
-export MOEF_ASVSPOOF5_ROOT=/home/user14/anhhd/spoof/datasets/asvspoof5
-export TOKENIZERS_PARALLELISM=false
-
-cd baselines/moef_icassp
-DATASET=asvspoof5 bash moe_run.sh 0
-```
-
-## Resume truc tiep
-
-Resume folder cu the:
-
-```bash
-cd /home/user14/anhhd/spoof/BaselinesSpoofDetection/baselines/moef_icassp
-conda activate moef_anhhd
-
-DATASET=asvspoof5 RESUME=2026_06_19_22_10_00 bash moe_run.sh 0
-```
-
-Resume folder moi nhat:
-
-```bash
-DATASET=asvspoof5 RESUME=latest bash moe_run.sh 0
-```
+- `0`: GPU id nhin thay trong process.
+- `w2v2_moe_fz24_aasist`: model chuan paper, frozen XLS-R, 24 hidden features.
+- `a_log/w2v2_moe_fz24_aasist/2_4_128`: folder log/checkpoint.
 
 ## Submit bang SLURM
 
-Train ASVspoof2019 LA:
-
 ```bash
 cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
 git pull
 mkdir -p logs/moef
 
-DATASET=asvspoof2019la \
 CONDA_ENV=moef_anhhd \
-MOEF_WAV2VEC2_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/wav2vec2_large_lv60 \
 MOEF_ASVSPOOF2019_LA_ROOT=/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA \
-sbatch -w dgx01 bash/moef/submit-train-job.sh
-```
-
-Train ASVspoof5:
-
-```bash
-cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
-git pull
-mkdir -p logs/moef
-
-DATASET=asvspoof5 \
-CONDA_ENV=moef_anhhd \
-MOEF_WAV2VEC2_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/wav2vec2_large_lv60 \
-MOEF_ASVSPOOF5_ROOT=/home/user14/anhhd/spoof/datasets/asvspoof5 \
-sbatch -w dgx01 bash/moef/submit-train-job.sh
-```
-
-Resume SLURM:
-
-```bash
-DATASET=asvspoof5 \
-RESUME=2026_06_19_22_10_00 \
-CONDA_ENV=moef_anhhd \
-sbatch -w dgx01 bash/moef/submit-train-job.sh
-```
-
-Resume folder moi nhat:
-
-```bash
-DATASET=asvspoof5 \
-RESUME=latest \
-CONDA_ENV=moef_anhhd \
+MOEF_XLSR_HF_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m_hf \
 sbatch -w dgx01 bash/moef/submit-train-job.sh
 ```
 
@@ -215,17 +164,42 @@ Theo doi:
 
 ```bash
 squeue -u "$USER"
+ls -lah logs/moef
 tail -f logs/moef/moef_train_<JOBID>.out
 tail -f logs/moef/moef_train_<JOBID>.err
 ```
 
-## Noi luu ket qua
+## Noi luu checkpoint
+
+Voi lenh mac dinh, Lightning se luu vao:
 
 ```text
-outputs/moef/<YYYY_MM_DD_HH_MM_SS>/
-  hyperparameters.yaml
-  hyperparameters.json
-  wandb_run_id.txt
+baselines/moef_icassp/a_log/w2v2_moe_fz24_aasist/2_4_128/version_*/
+  hparams.yaml
+  events.out.tfevents.*
   checkpoints/
     best_model-epoch=...ckpt
+```
+
+Checkpoint duoc monitor theo `loss` vi script `main_loss.py` cua branch ICASSP dung training loss de early-stop/save best, phu hop voi mo ta trong paper: model co training loss thap nhat duoc chon de evaluation.
+
+## Eval sau khi train
+
+Chay inference ASVspoof2019 LA eval:
+
+```bash
+cd /home/user14/anhhd/spoof/BaselinesSpoofDetection/baselines/moef_icassp
+conda activate moef_anhhd
+
+export MOEF_ASVSPOOF2019_LA_ROOT=/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
+export MOEF_XLSR_HF_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m_hf
+
+bash infer.sh a_log/w2v2_moe_fz24_aasist/2_4_128/version_0 0
+bash z_cul_eer.sh a_log/w2v2_moe_fz24_aasist/2_4_128/version_0
+```
+
+Ket qua EER se nam trong:
+
+```text
+baselines/moef_icassp/a_log/w2v2_moe_fz24_aasist/2_4_128/version_0/eer_19
 ```
