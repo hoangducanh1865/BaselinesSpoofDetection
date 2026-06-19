@@ -1,0 +1,69 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local data and protocols
+ASVspoof5_protocols/
+flac_*/
+flac_E_*/
+flac_T*/
+flac_D*/
+data/
+datasets/
+*.flac
+*.wav
+*.mp3
+*.npy
+*.npz
+
+# Pretrained models and checkpoints
+pretrained_models/
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.safetensors
+
+# Experiment outputs
+exp_result/
+runs/
+logs/
+wandb/
+lightning_logs/
+events.out.tfevents.*
+*.log
+
+# Archives and temporary files
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+tmp/
+temp/
+*.tmp
+*.crdownload
+
+# Local scratch
+stuff/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

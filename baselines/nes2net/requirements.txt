@@ -1,0 +1,8 @@
+torchcontrib
+numpy<2
+soundfile
+tensorboard
+tqdm
+six
+librosa
+librosa

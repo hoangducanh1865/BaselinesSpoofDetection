@@ -7,6 +7,7 @@ REGISTRY = {
     "eaasist": None,
     "moef": None,
     "moef_icassp": None,
+    "nes2net": "baselines.nes2net._adapter",
     "sls": None,
     "wav2vec2_aasist": None,
 }

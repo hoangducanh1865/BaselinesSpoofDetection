@@ -14,6 +14,7 @@ Danh sach tai lieu:
 - [wav2vec2_aasist](./wav2vec2_aasist.md)
 - [SLS](./sls.md)
 - [MoLEx](./molex.md)
+- [Nes2Net](./nes2net.md)
 - [Evolving AASIST](./eaasist.md)
 
 Ghi chu chung:
