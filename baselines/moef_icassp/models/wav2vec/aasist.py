@@ -9,7 +9,10 @@ import numpy as np
 from torch.utils import data
 from collections import OrderedDict
 from torch.nn.parameter import Parameter
-from pytorch_model_summary import summary
+try:
+    from pytorch_model_summary import summary
+except ImportError:
+    summary = None
 import math
 from typing import Union
 
