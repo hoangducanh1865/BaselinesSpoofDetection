@@ -29,7 +29,6 @@ class SSLModel(nn.Module):
         if next(self.model.parameters()).device != input_data.device \
            or next(self.model.parameters()).dtype != input_data.dtype:
             self.model.to(input_data.device, dtype=input_data.dtype)
-            self.model.train()
 
 
         if True:
@@ -38,9 +37,28 @@ class SSLModel(nn.Module):
             else:
                 input_tmp = input_data
 
+            collected_layers = []
+            handles = []
+            if hasattr(self.model, "encoder") and hasattr(self.model.encoder, "layers"):
+                def _collect_layer_output(_module, _inputs, output):
+                    x = output[0] if isinstance(output, tuple) else output
+                    z = output[1] if isinstance(output, tuple) and len(output) > 1 else None
+                    collected_layers.append((x, z))
+
+                handles = [
+                    layer.register_forward_hook(_collect_layer_output)
+                    for layer in self.model.encoder.layers
+                ]
+
             # [batch, length, dim]
-            emb = self.model(input_tmp, mask=False, features_only=True)['x']
-            layerresult = self.model(input_tmp, mask=False, features_only=True)['layer_results']
+            try:
+                result = self.model(input_tmp, mask=False, features_only=True)
+            finally:
+                for handle in handles:
+                    handle.remove()
+
+            emb = result['x']
+            layerresult = result.get('layer_results') or collected_layers
         return emb, layerresult
 
 def getAttenF(layerResult):
