@@ -1,10 +1,10 @@
-# AASIST
+# AASIST / AASIST-L
 
-AASIST nam o `baselines/aasist`. Baseline nay dung raw waveform truc tiep va checkpoint pretrained tren ASVspoof2019 LA.
+AASIST va AASIST-L nam o `baselines/aasist`. Hai bien the dung cung file kien truc `models/AASIST.py`; AASIST-L la ban nhe hon, dung `config/AASIST-L.conf` voi residual stack va graph dimensions nho hon.
 
 ## Pretrained checkpoint tren server
 
-Checkpoint da clone tu HuggingFace duoc dat tai:
+Checkpoint AASIST full da clone tu HuggingFace duoc dat tai:
 
 ```text
 /home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/aasist/aasist_asvspoof2019la.pth
@@ -19,7 +19,24 @@ meta.yaml
 README.md
 ```
 
-Score cua AASIST la logit lop `bonafide`; gia tri cang cao nghia la cang giong audio that.
+Checkpoint AASIST-L da clone tu HuggingFace duoc dat tai:
+
+```text
+/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/aasist_l/aasist_l_asvspoof2019la.pth
+```
+
+Thu muc checkpoint:
+
+```text
+aasist_l_asvspoof2019la.pth
+aasist_l.py
+_net.py
+LICENSE
+meta.yaml
+README.md
+```
+
+Score cua AASIST/AASIST-L la logit lop `bonafide`; gia tri cang cao nghia la cang giong audio that.
 
 ## Cai dat tren server
 
@@ -39,7 +56,7 @@ pip install soundfile tqdm pandas
 
 ## Chay evaluation bang CLI chung
 
-Dat checkpoint:
+Dat checkpoint AASIST full:
 
 ```bash
 cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
@@ -50,28 +67,33 @@ export AASIST_EVAL_BATCH_SIZE=128
 export AASIST_EVAL_NUM_WORKERS=16
 ```
 
-Chay in-domain tren ASVspoof2019 LA:
+Chay AASIST full:
 
 ```bash
 python main.py --baseline aasist --mode eval --dataset asvspoof2019la --ckpt "$AASIST_CKPT"
-```
-
-Chay cross-domain tren ASVspoof5:
-
-```bash
 python main.py --baseline aasist --mode eval --dataset asvspoof5 --ckpt "$AASIST_CKPT"
+python main.py --baseline aasist --mode eval --dataset in_the_wild --ckpt "$AASIST_CKPT"
 ```
 
-Chay cross-domain tren In-The-Wild:
+Dat checkpoint AASIST-L:
 
 ```bash
-python main.py --baseline aasist --mode eval --dataset in_the_wild --ckpt "$AASIST_CKPT"
+export AASIST_L_CKPT=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/aasist_l/aasist_l_asvspoof2019la.pth
+```
+
+Chay AASIST-L:
+
+```bash
+python main.py --baseline aasist_l --mode eval --dataset asvspoof2019la --ckpt "$AASIST_L_CKPT"
+python main.py --baseline aasist_l --mode eval --dataset asvspoof5 --ckpt "$AASIST_L_CKPT"
+python main.py --baseline aasist_l --mode eval --dataset in_the_wild --ckpt "$AASIST_L_CKPT"
 ```
 
 Neu chi muon sinh score, khong tinh EER:
 
 ```bash
 python main.py --baseline aasist --mode score --dataset asvspoof2019la --ckpt "$AASIST_CKPT"
+python main.py --baseline aasist_l --mode score --dataset asvspoof2019la --ckpt "$AASIST_L_CKPT"
 ```
 
 ## Noi luu ket qua
@@ -80,6 +102,15 @@ Ket qua duoc luu duoi:
 
 ```text
 outputs/aasist/evals/YYYY_MM_DD_HH_MM_SS__<checkpoint_name>__on__<dataset>/
+  eval_output.txt
+  eval_EER.txt
+  eval_config.txt
+```
+
+AASIST-L luu rieng tai:
+
+```text
+outputs/aasist_l/evals/YYYY_MM_DD_HH_MM_SS__<checkpoint_name>__on__<dataset>/
   eval_output.txt
   eval_EER.txt
   eval_config.txt
@@ -123,13 +154,23 @@ Luu y: `SPOOF_DATA_ROOT` override root cho dataset dang chay, nen chi dung khi t
 
 ## Luu y ve ket qua HuggingFace
 
-Model card bao cao checkpoint AASIST pretrained tren ASVspoof2019 LA dat:
+Model card bao cao checkpoint AASIST full pretrained tren ASVspoof2019 LA dat:
 
 ```text
 ASVspoof2019 LA: 0.83% EER
 ASVspoof2021 LA: 12.35% EER
 ASVspoof2021 DF: 17.04% EER
 In-The-Wild:     43.01% EER
+```
+
+AASIST-L pretrained tren ASVspoof2019 LA dat:
+
+```text
+ASVspoof2019 LA: 0.99% EER
+ASVspoof2021 LA: 13.15% EER
+ASVspoof2021 DF: 15.96% EER
+In-The-Wild:     44.45% EER
+ASVspoof5:       37.53% EER
 ```
 
 Ket qua local co the chenh nhe do version PyTorch, audio loader, batch size, hoac cach cat/pad waveform. Adapter hien tai dung deterministic first-window 64600 samples giong evaluation cua upstream.

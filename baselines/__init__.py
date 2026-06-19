@@ -3,6 +3,7 @@
 REGISTRY = {
     "molex": "baselines.molex._adapter",
     "aasist": "baselines.aasist._adapter",
+    "aasist_l": "baselines.aasist._adapter",
     "eaasist": None,
     "moef": None,
     "moef_icassp": None,

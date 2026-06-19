@@ -25,10 +25,26 @@ from tqdm import tqdm
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AASIST_DIR = Path(__file__).resolve().parent
-DEFAULT_CKPT = Path(
-    "/home/user14/anhhd/spoof/pretrained_spoof_models/"
-    "trained_on_asvspoof2019la/aasist/aasist_asvspoof2019la.pth"
-)
+VARIANTS = {
+    "aasist": {
+        "config": "AASIST.conf",
+        "env_ckpt": "AASIST_CKPT",
+        "default_ckpt": Path(
+            "/home/user14/anhhd/spoof/pretrained_spoof_models/"
+            "trained_on_asvspoof2019la/aasist/aasist_asvspoof2019la.pth"
+        ),
+        "output_name": "aasist",
+    },
+    "aasist_l": {
+        "config": "AASIST-L.conf",
+        "env_ckpt": "AASIST_L_CKPT",
+        "default_ckpt": Path(
+            "/home/user14/anhhd/spoof/pretrained_spoof_models/"
+            "trained_on_asvspoof2019la/aasist_l/aasist_l_asvspoof2019la.pth"
+        ),
+        "output_name": "aasist_l",
+    },
+}
 
 DATASET_MODULES = {
     "asvspoof5": ("datasets.asvspoof5", None),
@@ -45,12 +61,16 @@ DATA_ROOTS = {
 }
 
 
-def _output_root() -> Path:
-    return REPO_ROOT / "outputs" / "aasist"
+def _variant(args) -> dict:
+    return VARIANTS.get(args.baseline, VARIANTS["aasist"])
 
 
-def _load_model_config() -> dict:
-    with open(AASIST_DIR / "config" / "AASIST.conf") as f:
+def _output_root(args) -> Path:
+    return REPO_ROOT / "outputs" / _variant(args)["output_name"]
+
+
+def _load_model_config(args) -> dict:
+    with open(AASIST_DIR / "config" / _variant(args)["config"]) as f:
         return json.load(f)["model_config"]
 
 
@@ -58,7 +78,7 @@ def _resolve_meta(args) -> tuple[Path, Path]:
     module_name, track = DATASET_MODULES[args.dataset]
     mod = importlib.import_module(module_name)
     data_root = Path(os.environ.get("SPOOF_DATA_ROOT") or DATA_ROOTS[args.dataset])
-    meta_dir = _output_root() / "meta" / args.dataset
+    meta_dir = _output_root(args) / "meta" / args.dataset
     fold = 1
     mod.ensure_meta(data_root=data_root, meta_dir=meta_dir, fold=fold, track=track)
     return meta_dir / f"fold{fold}_evaluation.tsv", meta_dir / "wav.scp"
@@ -127,10 +147,10 @@ def _compute_eer(labels: np.ndarray, scores: np.ndarray) -> tuple[float, float]:
     return float(np.mean([frr[min_index], far[min_index]]) * 100), float(thresholds[min_index])
 
 
-def _load_model(ckpt_path: Path, device: torch.device):
+def _load_model(args, ckpt_path: Path, device: torch.device):
     sys.path.insert(0, str(AASIST_DIR))
     module = importlib.import_module("models.AASIST")
-    model = module.Model(_load_model_config()).to(device)
+    model = module.Model(_load_model_config(args)).to(device)
     checkpoint = torch.load(ckpt_path, map_location=device)
     if isinstance(checkpoint, dict):
         checkpoint = checkpoint.get("state_dict") or checkpoint.get("model") or checkpoint
@@ -144,9 +164,13 @@ def _load_model(ckpt_path: Path, device: torch.device):
 
 def _run_eval(args, compute_eer: bool) -> None:
     if args.config:
-        print("[aasist] --config is ignored; using baselines/aasist/config/AASIST.conf model_config.")
+        print(
+            f"[{args.baseline}] --config is ignored; using "
+            f"baselines/aasist/config/{_variant(args)['config']} model_config."
+        )
 
-    ckpt_path = Path(args.ckpt or os.environ.get("AASIST_CKPT", DEFAULT_CKPT))
+    variant = _variant(args)
+    ckpt_path = Path(args.ckpt or os.environ.get(variant["env_ckpt"], variant["default_ckpt"]))
     meta_path, wav_scp_path = _resolve_meta(args)
     dataset = AASISTEvalDataset(meta_path, wav_scp_path)
     batch_size = int(os.environ.get("AASIST_EVAL_BATCH_SIZE", 128))
@@ -161,15 +185,15 @@ def _run_eval(args, compute_eer: bool) -> None:
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = _load_model(ckpt_path, device)
+    model = _load_model(args, ckpt_path, device)
     model.eval()
     print(
-        f"[aasist] Evaluation files: {len(dataset)}, "
+        f"[{args.baseline}] Evaluation files: {len(dataset)}, "
         f"batch_size={batch_size}, num_workers={num_workers}"
     )
 
     timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    output_dir = _output_root() / "evals" / f"{timestamp}__{ckpt_path.stem}__on__{args.dataset}"
+    output_dir = _output_root(args) / "evals" / f"{timestamp}__{ckpt_path.stem}__on__{args.dataset}"
     output_dir.mkdir(parents=True, exist_ok=True)
     score_path = output_dir / ("eval_output.txt" if compute_eer else "score.txt")
 
@@ -193,6 +217,8 @@ def _run_eval(args, compute_eer: bool) -> None:
     with open(output_dir / "eval_config.txt", "w") as f:
         f.write(f"dataset={args.dataset}\n")
         f.write(f"checkpoint={ckpt_path}\n")
+        f.write(f"baseline={args.baseline}\n")
+        f.write(f"model_config={variant['config']}\n")
         f.write(f"score_higher=bonafide\n")
         f.write(f"batch_size={batch_size}\n")
         f.write(f"num_workers={num_workers}\n")
