@@ -1,9 +1,9 @@
 """Unified CLI adapter for the Nes2Net baseline.
 
-The checked-in Nes2Net implementation uses WavLM-Large + Nes2Net-X. This
-adapter reuses the repo-level dataset converters so the common ``main.py`` CLI
-can evaluate checkpoints trained on ASVspoof2019 LA or ASVspoof5 against
-ASVspoof2019 LA, ASVspoof5, and In-The-Wild.
+Nes2Net uses different SSL front-ends in the released experiments:
+ASVspoof2019/2021 and In-The-Wild checkpoints use wav2vec2/XLS-R 300M, while
+the ASVspoof5 checkpoint uses WavLM-Large. This adapter selects the matching
+front-end from the checkpoint path, with ``NES2NET_BACKBONE`` as an override.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+from types import SimpleNamespace
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from tqdm import tqdm
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NES2NET_DIR = Path(__file__).resolve().parent
 DEFAULT_WAVLM = Path("/home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large/WavLM-Large.pt")
+DEFAULT_XLSR = Path("/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt")
 DEFAULT_CKPT_2019 = Path(
     "/home/user14/anhhd/spoof/pretrained_spoof_models/"
     "trained_on_asvspoof2019la/nes2net/nes2net_asvspoof2019la.pth"
@@ -86,9 +88,10 @@ def _pad(x: np.ndarray, max_len: int = 64600) -> np.ndarray:
 
 
 class Nes2NetEvalDataset(Dataset):
-    def __init__(self, meta_path: Path, wav_scp_path: Path):
+    def __init__(self, meta_path: Path, wav_scp_path: Path, max_len: int | None):
         df = pd.read_csv(meta_path, sep="\t")
         wav_scp = _load_wav_scp(wav_scp_path)
+        self.max_len = max_len
         id_col, label_col = df.columns[:2]
         rows = []
         for row in df.itertuples(index=False):
@@ -106,9 +109,20 @@ class Nes2NetEvalDataset(Dataset):
         audio, _ = sf.read(path)
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
-        audio = _pad(audio.astype(np.float32))
+        audio = audio.astype(np.float32)
+        if self.max_len is not None:
+            audio = _pad(audio, self.max_len)
         y = 1 if label == "bonafide" else 0
         return Tensor(audio), y, utt_id
+
+
+def _collate_eval(batch):
+    xs, ys, utt_ids = zip(*batch)
+    max_len = max(x.numel() for x in xs)
+    padded = xs[0].new_zeros((len(xs), max_len))
+    for index, x in enumerate(xs):
+        padded[index, : x.numel()] = x
+    return padded, torch.tensor(ys, dtype=torch.long), list(utt_ids)
 
 
 def _compute_eer(labels: np.ndarray, scores: np.ndarray) -> tuple[float, float]:
@@ -137,17 +151,41 @@ def _default_ckpt(args) -> Path:
     return DEFAULT_CKPT_2019
 
 
-def _load_model(ckpt_path: Path, device: torch.device):
-    os.environ.setdefault("WAVLM_LARGE_PATH", str(DEFAULT_WAVLM))
-    module = importlib.import_module("baselines.nes2net.models.wavlm_nes2net")
-    model = module.Model(_load_model_config(), device=device).to(device)
+def _resolve_backbone(ckpt_path: Path, args) -> str:
+    requested = os.environ.get("NES2NET_BACKBONE") or os.environ.get("NES2NET_ARCH")
+    if requested:
+        requested = requested.lower().strip()
+        if requested in {"xlsr", "wav2vec2", "wav2vec"}:
+            return "xlsr"
+        if requested == "wavlm":
+            return "wavlm"
+        raise ValueError("NES2NET_BACKBONE must be one of: xlsr, wav2vec2, wavlm.")
+
+    ckpt_name = str(ckpt_path).lower()
+    if "asvspoof2019" in ckpt_name or "2019" in ckpt_name:
+        return "xlsr"
+    if "asvspoof5" in ckpt_name:
+        return "wavlm"
+    return "wavlm" if args.dataset == "asvspoof5" else "xlsr"
+
+
+def _load_checkpoint_state_dict(ckpt_path: Path, device: torch.device) -> dict:
     checkpoint = torch.load(ckpt_path, map_location=device)
     if isinstance(checkpoint, dict):
         checkpoint = checkpoint.get("state_dict") or checkpoint.get("model") or checkpoint
-    checkpoint = {
+    if not hasattr(checkpoint, "items"):
+        raise RuntimeError(f"Unsupported checkpoint format: {ckpt_path}")
+    return {
         (key[len("module."):] if key.startswith("module.") else key): value
         for key, value in checkpoint.items()
     }
+
+
+def _load_wavlm_model(ckpt_path: Path, device: torch.device):
+    os.environ.setdefault("WAVLM_LARGE_PATH", str(DEFAULT_WAVLM))
+    module = importlib.import_module("baselines.nes2net.models.wavlm_nes2net")
+    model = module.Model(_load_model_config(), device=device).to(device)
+    checkpoint = _load_checkpoint_state_dict(ckpt_path, device)
     try:
         model.load_state_dict(checkpoint, strict=True)
     except RuntimeError as exc:
@@ -160,14 +198,59 @@ def _load_model(ckpt_path: Path, device: torch.device):
     return model
 
 
+def _load_xlsr_model(ckpt_path: Path, device: torch.device):
+    os.environ.setdefault("XLSR2_300M_PATH", str(DEFAULT_XLSR))
+    try:
+        module = importlib.import_module("baselines.nes2net.model_scripts.wav2vec2_Nes2Net_X")
+    except ModuleNotFoundError as exc:
+        if exc.name == "fairseq":
+            raise ModuleNotFoundError(
+                "Nes2Net XLS-R backend requires fairseq. On the server, install the "
+                "fairseq snapshot used by wav2vec2-AASIST, then rerun eval."
+            ) from exc
+        raise
+    model_args = SimpleNamespace(
+        n_output_logits=2,
+        dilation=2,
+        pool_func="mean",
+        Nes_ratio=[8, 8],
+        SE_ratio=[1],
+    )
+    model = module.wav2vec2_Nes2Net_no_Res_w_allT(args=model_args, device=device).to(device)
+    checkpoint = _load_checkpoint_state_dict(ckpt_path, device)
+    try:
+        model.load_state_dict(checkpoint, strict=True)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"Could not load Nes2Net checkpoint {ckpt_path}. "
+            "This adapter expected wav2vec2/XLS-R 300M + Nes2Net-X with "
+            "Nes_ratio=[8, 8], pool_func=mean, SE_ratio=1."
+        ) from exc
+    return model
+
+
+def _load_model(ckpt_path: Path, device: torch.device, backbone: str):
+    if backbone == "xlsr":
+        return _load_xlsr_model(ckpt_path, device)
+    if backbone == "wavlm":
+        return _load_wavlm_model(ckpt_path, device)
+    raise ValueError(f"Unsupported Nes2Net backbone: {backbone}")
+
+
 def _run_eval(args, compute_eer: bool) -> None:
     if args.config:
-        print("[nes2net] --config is ignored; using config/WavLM_Nes2Net_ASVspoof5.conf model_config.")
+        print("[nes2net] --config is ignored; using architecture settings from the selected backbone.")
 
     ckpt_path = Path(args.ckpt or os.environ.get("NES2NET_CKPT", _default_ckpt(args)))
+    backbone = _resolve_backbone(ckpt_path, args)
     meta_path, wav_scp_path = _resolve_meta(args)
-    dataset = Nes2NetEvalDataset(meta_path, wav_scp_path)
-    batch_size = int(os.environ.get("NES2NET_EVAL_BATCH_SIZE", 16))
+    max_len = None if args.dataset == "in_the_wild" else 64600
+    if "NES2NET_EVAL_MAX_LEN" in os.environ:
+        value = os.environ["NES2NET_EVAL_MAX_LEN"].strip().lower()
+        max_len = None if value in {"", "none", "full"} else int(value)
+    dataset = Nes2NetEvalDataset(meta_path, wav_scp_path, max_len=max_len)
+    default_batch_size = 1 if max_len is None else 16
+    batch_size = int(os.environ.get("NES2NET_EVAL_BATCH_SIZE", default_batch_size))
     num_workers = int(os.environ.get("NES2NET_EVAL_NUM_WORKERS", 8))
     loader = DataLoader(
         dataset,
@@ -176,13 +259,15 @@ def _run_eval(args, compute_eer: bool) -> None:
         drop_last=False,
         pin_memory=True,
         num_workers=num_workers,
+        collate_fn=_collate_eval,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = _load_model(ckpt_path, device)
+    model = _load_model(ckpt_path, device, backbone)
     model.eval()
     print(
-        f"[nes2net] Evaluation files: {len(dataset)}, "
+        f"[nes2net] Evaluation files: {len(dataset)}, backbone={backbone}, "
+        f"max_len={'full' if max_len is None else max_len}, "
         f"batch_size={batch_size}, num_workers={num_workers}"
     )
 
@@ -211,7 +296,10 @@ def _run_eval(args, compute_eer: bool) -> None:
     with open(output_dir / "eval_config.txt", "w") as f:
         f.write(f"dataset={args.dataset}\n")
         f.write(f"checkpoint={ckpt_path}\n")
+        f.write(f"backbone={backbone}\n")
         f.write(f"wavlm_checkpoint={os.environ.get('WAVLM_LARGE_PATH')}\n")
+        f.write(f"xlsr2_300m_checkpoint={os.environ.get('XLSR2_300M_PATH')}\n")
+        f.write(f"max_len={'full' if max_len is None else max_len}\n")
         f.write(f"score_higher=bonafide\n")
         f.write(f"batch_size={batch_size}\n")
         f.write(f"num_workers={num_workers}\n")
