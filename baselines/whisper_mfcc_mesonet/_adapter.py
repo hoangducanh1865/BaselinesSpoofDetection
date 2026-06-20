@@ -21,7 +21,7 @@ WHISPER_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG = WHISPER_DIR / "configs" / "training" / "whisper_frontend_mesonet_mfcc.yaml"
 DEFAULT_CKPT = Path(
     "/home/user14/anhhd/spoof/pretrained_spoof_models/"
-    "trained_on_asvspoof2021df/whisper_mfcc_mesonet/whisper_mfcc_mesonet_finetuned.pth"
+    "trained_on_asvspoof2019la/whisper_mfcc_mesonet/whisper_mfcc_mesonet_finetuned.pth"
 )
 
 

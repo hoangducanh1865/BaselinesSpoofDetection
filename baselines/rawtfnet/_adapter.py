@@ -18,7 +18,10 @@ from datasets.registry import ensure_eval_meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RAWTFNET_DIR = Path(__file__).resolve().parent
-DEFAULT_CKPT = RAWTFNET_DIR / "ckpts" / "Best_RawTFNet_32.pth"
+DEFAULT_CKPT = Path(
+    "/home/user14/anhhd/spoof/pretrained_spoof_models/"
+    "trained_on_asvspoof2019la/rawtfnet/Best_RawTFNet_32.pth"
+)
 
 
 def _output_root() -> Path:

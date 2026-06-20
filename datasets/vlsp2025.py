@@ -31,4 +31,5 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
     df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
     with open(wav_scp_path, "w") as f:
         for row in df.itertuples(index=False):
-            f.write(f"{row.utt_id} {row.path}\n")
+            abs_path = data_root / row.path
+            f.write(f"{row.utt_id} {abs_path}\n")
