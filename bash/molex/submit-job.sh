@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_DIR="/home/user14/anhhd/spoof/BaselinesSpoofDetection"
-CONDA_ENV="${CONDA_ENV:-molex_anhhd}"
+CONDA_ENV="${CONDA_ENV:-nes2net}"
 DATASET="${DATASET:-asvspoof2019la}"
 CONFIG="${CONFIG:-configs/molex.yaml}"
 RESUME="${RESUME:-}"
