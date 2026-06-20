@@ -1,32 +1,32 @@
-"""Unified CLI adapter for XLS-R SLS."""
+"""Unified CLI adapter for Whisper-MFCC-MesoNet evaluation."""
 
 from __future__ import annotations
 
-import importlib
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import soundfile as sf
 import torch
-from torch import Tensor
+import yaml
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from datasets.registry import ensure_eval_meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_XLSR = Path("/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt")
-DEFAULT_CKPT_2019 = Path(
+WHISPER_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG = WHISPER_DIR / "configs" / "training" / "whisper_frontend_mesonet_mfcc.yaml"
+DEFAULT_CKPT = Path(
     "/home/user14/anhhd/spoof/pretrained_spoof_models/"
-    "trained_on_asvspoof2019la/xlsr_sls/xlsr_sls_asvspoof2019la.pth"
+    "trained_on_asvspoof2021df/whisper_mfcc_mesonet/whisper_mfcc_mesonet_finetuned.pth"
 )
 
+
 def _output_root() -> Path:
-    return REPO_ROOT / "outputs" / "xlsr_sls"
+    return REPO_ROOT / "outputs" / "whisper_mfcc_mesonet"
 
 
 def _resolve_meta(args) -> tuple[Path, Path]:
@@ -43,15 +43,12 @@ def _load_wav_scp(path: Path) -> dict[str, str]:
     return mapping
 
 
-def _pad(x: np.ndarray, max_len: int = 64600) -> np.ndarray:
-    if x.shape[0] >= max_len:
-        return x[:max_len]
-    num_repeats = int(max_len / x.shape[0]) + 1
-    return np.tile(x, num_repeats)[:max_len]
-
-
-class XLSRSlsEvalDataset(Dataset):
+class WhisperMFCCMesoNetEvalDataset(Dataset):
     def __init__(self, meta_path: Path, wav_scp_path: Path):
+        self._prepare_imports()
+        from src.datasets.base_dataset import apply_preprocessing
+
+        self.apply_preprocessing = apply_preprocessing
         df = pd.read_csv(meta_path, sep="\t")
         wav_scp = _load_wav_scp(wav_scp_path)
         rows = []
@@ -62,17 +59,28 @@ class XLSRSlsEvalDataset(Dataset):
                 rows.append((utt_id, label, wav_scp[utt_id]))
         self.rows = rows
 
+    @staticmethod
+    def _prepare_imports() -> None:
+        whisper_path = str(WHISPER_DIR)
+        if whisper_path not in sys.path:
+            sys.path.insert(0, whisper_path)
+
     def __len__(self) -> int:
         return len(self.rows)
 
     def __getitem__(self, index: int):
+        try:
+            import torchaudio
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "Whisper-MFCC-MesoNet eval requires torchaudio with sox support. "
+                "Install torchaudio and libsox in the nes2net_anhhd environment."
+            ) from exc
         utt_id, label, path = self.rows[index]
-        audio, _ = sf.read(path)
-        if audio.ndim > 1:
-            audio = audio.mean(axis=1)
-        audio = _pad(audio.astype(np.float32))
+        waveform, sample_rate = torchaudio.load(path, normalize=True)
+        waveform, _ = self.apply_preprocessing(waveform, sample_rate)
         y = 1 if label == "bonafide" else 0
-        return Tensor(audio), y, utt_id
+        return waveform, y, utt_id
 
 
 def _compute_eer(labels: np.ndarray, scores: np.ndarray) -> tuple[float, float]:
@@ -98,51 +106,57 @@ def _compute_eer(labels: np.ndarray, scores: np.ndarray) -> tuple[float, float]:
 def _load_checkpoint_state_dict(ckpt_path: Path, device: torch.device) -> dict:
     checkpoint = torch.load(ckpt_path, map_location=device)
     if isinstance(checkpoint, dict):
-        checkpoint = checkpoint.get("state_dict") or checkpoint.get("model") or checkpoint
+        checkpoint = (
+            checkpoint.get("state_dict")
+            or checkpoint.get("model_state_dict")
+            or checkpoint.get("model")
+            or checkpoint
+        )
     if not hasattr(checkpoint, "items"):
         raise RuntimeError(f"Unsupported checkpoint format: {ckpt_path}")
-    return {
-        (key[len("module."):] if key.startswith("module.") else key): value
-        for key, value in checkpoint.items()
-    }
+    state_dict = {}
+    for key, value in checkpoint.items():
+        for prefix in ("module.", "model.", "net."):
+            if key.startswith(prefix):
+                key = key[len(prefix):]
+                break
+        state_dict[key] = value
+    return state_dict
 
 
-def _load_model(ckpt_path: Path, device: torch.device):
-    os.environ.setdefault("XLSR2_300M_PATH", str(DEFAULT_XLSR))
-    try:
-        from baselines.xlsr_sls.model import Model
-    except ModuleNotFoundError as exc:
-        if exc.name == "fairseq":
-            raise ModuleNotFoundError(
-                "XLSR-SLS requires fairseq. Use the nes2net_anhhd env or install the "
-                "fairseq snapshot a54021305d6b3c4c5959ac9395135f63202db8f1."
-            ) from exc
-        raise
+def _load_model(args, ckpt_path: Path, device: torch.device):
+    whisper_path = str(WHISPER_DIR)
+    if whisper_path not in sys.path:
+        sys.path.insert(0, whisper_path)
+    from src.models import models
 
-    model_args = SimpleNamespace()
-    model = Model(model_args, device=device).to(device)
-    state_dict = _load_checkpoint_state_dict(ckpt_path, device)
-    try:
-        model.load_state_dict(state_dict, strict=True)
-    except RuntimeError as exc:
-        raise RuntimeError(
-            f"Could not load XLSR-SLS checkpoint {ckpt_path}. "
-            "This adapter expects the official XLS-R 300M + SLS architecture."
-        ) from exc
-    return model
+    config_path = Path(args.config) if args.config else DEFAULT_CONFIG
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+
+    model_cfg = cfg["model"]
+    model = models.get_model(model_cfg["name"], model_cfg["parameters"], device=str(device)).to(device)
+    model.load_state_dict(_load_checkpoint_state_dict(ckpt_path, device), strict=True)
+    return model, config_path
 
 
 def _run_eval(args, compute_eer: bool) -> None:
     ckpt_path = Path(
         args.ckpt
-        or os.environ.get("XLSR_SLS_CKPT")
-        or os.environ.get("XLSR_SLS_CKPT_2019")
-        or DEFAULT_CKPT_2019
+        or os.environ.get("WHISPER_MFCC_MESONET_CKPT")
+        or os.environ.get("WHISPER_MFCC_MESONET_CKPT_2021DF")
+        or DEFAULT_CKPT
     )
+    if not ckpt_path.exists():
+        raise FileNotFoundError(
+            f"Whisper-MFCC-MesoNet checkpoint not found: {ckpt_path}. "
+            "Pass --ckpt or export WHISPER_MFCC_MESONET_CKPT."
+        )
+
     meta_path, wav_scp_path = _resolve_meta(args)
-    dataset = XLSRSlsEvalDataset(meta_path, wav_scp_path)
-    batch_size = int(os.environ.get("XLSR_SLS_EVAL_BATCH_SIZE", 8))
-    num_workers = int(os.environ.get("XLSR_SLS_EVAL_NUM_WORKERS", 8))
+    dataset = WhisperMFCCMesoNetEvalDataset(meta_path, wav_scp_path)
+    batch_size = int(os.environ.get("WHISPER_MFCC_MESONET_EVAL_BATCH_SIZE", 8))
+    num_workers = int(os.environ.get("WHISPER_MFCC_MESONET_EVAL_NUM_WORKERS", 4))
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -153,10 +167,10 @@ def _run_eval(args, compute_eer: bool) -> None:
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = _load_model(ckpt_path, device)
+    model, config_path = _load_model(args, ckpt_path, device)
     model.eval()
     print(
-        f"[xlsr_sls] Evaluation files: {len(dataset)}, "
+        f"[whisper_mfcc_mesonet] Evaluation files: {len(dataset)}, "
         f"batch_size={batch_size}, num_workers={num_workers}"
     )
 
@@ -172,7 +186,7 @@ def _run_eval(args, compute_eer: bool) -> None:
         for batch_x, batch_y, batch_utt in tqdm(loader, desc="Evaluation", dynamic_ncols=True):
             batch_x = batch_x.to(device, non_blocking=True)
             batch_out = model(batch_x)
-            batch_scores = batch_out[:, 1].detach().cpu().numpy().ravel()
+            batch_scores = batch_out.detach().cpu().numpy().reshape(-1)
             utt_ids.extend(batch_utt)
             labels.extend(batch_y.numpy().tolist())
             scores.extend(batch_scores.tolist())
@@ -185,9 +199,12 @@ def _run_eval(args, compute_eer: bool) -> None:
     with open(output_dir / "eval_config.txt", "w") as f:
         f.write(f"dataset={args.dataset}\n")
         f.write(f"checkpoint={ckpt_path}\n")
-        f.write(f"xlsr2_300m_checkpoint={os.environ.get('XLSR2_300M_PATH')}\n")
+        f.write(f"config={config_path}\n")
+        f.write(f"whisper_encoder={os.environ.get('WHISPER_MODEL_WEIGHTS_PATH', '')}\n")
         f.write("score_higher=bonafide\n")
-        f.write("max_len=64600\n")
+        f.write("max_len=480000\n")
+        f.write("sample_rate=16000\n")
+        f.write("preprocessing=sox_silence_trim_repeat_pad\n")
         f.write(f"batch_size={batch_size}\n")
         f.write(f"num_workers={num_workers}\n")
 
@@ -210,6 +227,6 @@ def score(args) -> None:
 
 def train(args) -> None:
     raise NotImplementedError(
-        "XLSR-SLS training is not wired into the unified CLI. "
-        "Use baselines/xlsr_sls/main.py directly if training from scratch is needed."
+        "Whisper-MFCC-MesoNet training is not wired into the unified CLI. "
+        "Use upstream scripts in baselines/whisper_mfcc_mesonet for training."
     )

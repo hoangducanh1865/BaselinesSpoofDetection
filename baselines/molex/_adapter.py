@@ -26,20 +26,11 @@ import pandas as pd
 import torch
 import yaml
 
+from datasets.registry import ensure_dataset_meta
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MOLEX_DIR = Path(__file__).resolve().parent
 MOLEX_SRC = MOLEX_DIR / "src"
-
-# dataset CLI name -> (adapter module, track kwarg). See AGENT_TASK.md step 5;
-# datasets.asvspoof5 / datasets.asvspoof2019 must expose
-# ensure_meta(data_root, meta_dir, fold, track) -> None, writing
-# fold{N}_{train,validation,evaluation}.tsv + wav.scp into meta_dir.
-DATASET_MODULES = {
-    "asvspoof5": ("datasets.asvspoof5", None),
-    "asvspoof2019la": ("datasets.asvspoof2019", "LA"),
-    "asvspoof2019pa": ("datasets.asvspoof2019", "PA"),
-    "in_the_wild": ("datasets.in_the_wild", None),
-}
 
 
 def _output_root() -> Path:
@@ -95,15 +86,14 @@ def _load_yaml_config(args) -> dict:
 
 def _resolve_meta(cfg: dict, args) -> tuple[Path, Path]:
     """Make sure fold*.tsv + wav.scp exist for args.dataset; return (meta_dir, feat_file)."""
-    module_name, track = DATASET_MODULES[args.dataset]
-    mod = importlib.import_module(module_name)
-
-    data_root = Path(os.environ.get("SPOOF_DATA_ROOT") or cfg["paths"]["data_root"][args.dataset])
     meta_dir = REPO_ROOT / cfg["paths"]["meta_root"] / args.dataset
     fold = cfg["paths"]["fold"]
-
-    mod.ensure_meta(data_root=data_root, meta_dir=meta_dir, fold=fold, track=track)
-    return meta_dir, meta_dir / "wav.scp"
+    return ensure_dataset_meta(
+        args.dataset,
+        meta_dir=meta_dir,
+        config_roots=cfg.get("paths", {}).get("data_root", {}),
+        fold=fold,
+    )
 
 
 def _json_config(cfg: dict, num_epochs: int | None) -> dict:

@@ -8,8 +8,11 @@ REGISTRY = {
     "moef": None,
     "moef_icassp": None,
     "nes2net": "baselines.nes2net._adapter",
+    "rawtfnet": "baselines.rawtfnet._adapter",
     "sls": "baselines.xlsr_sls._adapter",
     "w2v2_aasist": "baselines.wav2vec2_aasist._adapter",
     "wav2vec2_aasist": "baselines.wav2vec2_aasist._adapter",
+    "whisper_mfcc_mesonet": "baselines.whisper_mfcc_mesonet._adapter",
+    "whispermfccmesonet": "baselines.whisper_mfcc_mesonet._adapter",
     "xlsr_sls": "baselines.xlsr_sls._adapter",
 }

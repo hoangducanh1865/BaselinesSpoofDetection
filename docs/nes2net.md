@@ -59,7 +59,7 @@ Checkpoint train tren ASVspoof5:
 ```bash
 cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
 git pull
-conda activate molex_anhhd
+conda activate nes2net_anhhd
 ```
 
 Dependency toi thieu:
@@ -101,7 +101,7 @@ Checkpoint nay dung XLS-R 300M + Nes2Net-X.
 
 ```bash
 cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
-conda activate molex_anhhd
+conda activate nes2net_anhhd
 
 export NES2NET_CKPT_2019=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/nes2net/nes2net_asvspoof2019la.pth
 export XLSR2_300M_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt
@@ -132,7 +132,7 @@ Checkpoint nay dung WavLM-Large + Nes2Net-X.
 
 ```bash
 cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
-conda activate molex_anhhd
+conda activate nes2net_anhhd
 
 export NES2NET_CKPT_ASV5=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof5/nes2net/nes2net_asvspoof5.pth
 export WAVLM_LARGE_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large/WavLM-Large.pt
@@ -177,18 +177,44 @@ utt_id<TAB>label<TAB>score
 
 `eval_config.txt` ghi dataset, checkpoint, backbone, SSL checkpoint, max_len, batch size va num workers.
 
-## Dataset dang ho tro
+## Eval tren cac dataset moi
 
-CLI chung hien ho tro:
+CLI chung hien ho tro cac dataset sau cho Nes2Net:
 
 ```text
 asvspoof2019la
 asvspoof2019pa
+asvspoof2021la
+asvspoof2021df
+asvspoof2021pa
 asvspoof5
+dfadd_test
+fake_or_real_norm
+fake_or_real_2sec
+fake_or_real_original
+fake_or_real_rerec
 in_the_wild
+vlsp2025
+vsasv
 ```
 
-Duong dan dataset mac dinh:
+Lenh goi nhanh theo thu tu tuong doi be -> lon:
+
+```bash
+python main.py --baseline nes2net --mode eval --dataset dfadd_test --ckpt "$NES2NET_CKPT_2019"
+python main.py --baseline nes2net --mode eval --dataset fake_or_real_norm --ckpt "$NES2NET_CKPT_2019"
+python main.py --baseline nes2net --mode eval --dataset vlsp2025 --ckpt "$NES2NET_CKPT_2019"
+python main.py --baseline nes2net --mode eval --dataset vsasv --ckpt "$NES2NET_CKPT_2019"
+python main.py --baseline nes2net --mode eval --dataset in_the_wild --ckpt "$NES2NET_CKPT_2019"
+python main.py --baseline nes2net --mode eval --dataset asvspoof2019la --ckpt "$NES2NET_CKPT_2019"
+python main.py --baseline nes2net --mode eval --dataset asvspoof2021la --ckpt "$NES2NET_CKPT_2019"
+python main.py --baseline nes2net --mode eval --dataset asvspoof2021df --ckpt "$NES2NET_CKPT_2019"
+python main.py --baseline nes2net --mode eval --dataset asvspoof5 --ckpt "$NES2NET_CKPT_2019"
+```
+
+Voi checkpoint train ASVspoof5, thay `NES2NET_CKPT_2019` bang `NES2NET_CKPT_ASV5`.
+
+Duong dan dataset mac dinh duoc quan ly trong `datasets/registry.py`.
 
 ```text
 asvspoof2019la: /home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA

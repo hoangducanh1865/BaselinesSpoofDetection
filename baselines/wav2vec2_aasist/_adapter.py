@@ -16,6 +16,8 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from datasets.registry import ensure_eval_meta
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_XLSR = Path("/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt")
 DEFAULT_CKPT_2019 = Path(
@@ -23,33 +25,12 @@ DEFAULT_CKPT_2019 = Path(
     "trained_on_asvspoof2019la/w2v2_aasist/w2v2_aasist_asvspoof2019la.pth"
 )
 
-DATASET_MODULES = {
-    "asvspoof5": ("datasets.asvspoof5", None),
-    "asvspoof2019la": ("datasets.asvspoof2019", "LA"),
-    "asvspoof2019pa": ("datasets.asvspoof2019", "PA"),
-    "in_the_wild": ("datasets.in_the_wild", None),
-}
-
-DATA_ROOTS = {
-    "asvspoof5": "/home/user14/anhhd/spoof/datasets/asvspoof5",
-    "asvspoof2019la": "/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA",
-    "asvspoof2019pa": "/home/user14/anhhd/spoof/datasets/asvspoof2019/PA/PA",
-    "in_the_wild": "/home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild",
-}
-
-
 def _output_root() -> Path:
     return REPO_ROOT / "outputs" / "wav2vec2_aasist"
 
 
 def _resolve_meta(args) -> tuple[Path, Path]:
-    module_name, track = DATASET_MODULES[args.dataset]
-    mod = importlib.import_module(module_name)
-    data_root = Path(os.environ.get("SPOOF_DATA_ROOT") or DATA_ROOTS[args.dataset])
-    meta_dir = _output_root() / "meta" / args.dataset
-    fold = 1
-    mod.ensure_meta(data_root=data_root, meta_dir=meta_dir, fold=fold, track=track)
-    return meta_dir / f"fold{fold}_evaluation.tsv", meta_dir / "wav.scp"
+    return ensure_eval_meta(args.dataset, _output_root(), fold=1)
 
 
 def _load_wav_scp(path: Path) -> dict[str, str]:

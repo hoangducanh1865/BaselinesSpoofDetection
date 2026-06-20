@@ -1,12 +1,10 @@
-"""Unified CLI adapter for XLS-R SLS."""
+"""Unified CLI adapter for RawTFNet evaluation."""
 
 from __future__ import annotations
 
-import importlib
 import os
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -19,14 +17,12 @@ from tqdm import tqdm
 from datasets.registry import ensure_eval_meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_XLSR = Path("/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt")
-DEFAULT_CKPT_2019 = Path(
-    "/home/user14/anhhd/spoof/pretrained_spoof_models/"
-    "trained_on_asvspoof2019la/xlsr_sls/xlsr_sls_asvspoof2019la.pth"
-)
+RAWTFNET_DIR = Path(__file__).resolve().parent
+DEFAULT_CKPT = RAWTFNET_DIR / "ckpts" / "Best_RawTFNet_32.pth"
+
 
 def _output_root() -> Path:
-    return REPO_ROOT / "outputs" / "xlsr_sls"
+    return REPO_ROOT / "outputs" / "rawtfnet"
 
 
 def _resolve_meta(args) -> tuple[Path, Path]:
@@ -43,14 +39,14 @@ def _load_wav_scp(path: Path) -> dict[str, str]:
     return mapping
 
 
-def _pad(x: np.ndarray, max_len: int = 64600) -> np.ndarray:
+def _pad_fixed(x: np.ndarray, max_len: int = 64600) -> np.ndarray:
     if x.shape[0] >= max_len:
         return x[:max_len]
-    num_repeats = int(max_len / x.shape[0]) + 1
-    return np.tile(x, num_repeats)[:max_len]
+    repeats = int(max_len / x.shape[0]) + 1
+    return np.tile(x, repeats)[:max_len]
 
 
-class XLSRSlsEvalDataset(Dataset):
+class RawTFNetEvalDataset(Dataset):
     def __init__(self, meta_path: Path, wav_scp_path: Path):
         df = pd.read_csv(meta_path, sep="\t")
         wav_scp = _load_wav_scp(wav_scp_path)
@@ -67,10 +63,19 @@ class XLSRSlsEvalDataset(Dataset):
 
     def __getitem__(self, index: int):
         utt_id, label, path = self.rows[index]
-        audio, _ = sf.read(path)
+        audio, sample_rate = sf.read(path)
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
-        audio = _pad(audio.astype(np.float32))
+        if sample_rate != 16000:
+            try:
+                import librosa
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "RawTFNet eval must resample non-16 kHz audio. Install librosa "
+                    "or convert the dataset to mono 16 kHz first."
+                ) from exc
+            audio = librosa.resample(audio.astype(np.float32), orig_sr=sample_rate, target_sr=16000)
+        audio = _pad_fixed(audio.astype(np.float32))
         y = 1 if label == "bonafide" else 0
         return Tensor(audio), y, utt_id
 
@@ -108,41 +113,19 @@ def _load_checkpoint_state_dict(ckpt_path: Path, device: torch.device) -> dict:
 
 
 def _load_model(ckpt_path: Path, device: torch.device):
-    os.environ.setdefault("XLSR2_300M_PATH", str(DEFAULT_XLSR))
-    try:
-        from baselines.xlsr_sls.model import Model
-    except ModuleNotFoundError as exc:
-        if exc.name == "fairseq":
-            raise ModuleNotFoundError(
-                "XLSR-SLS requires fairseq. Use the nes2net_anhhd env or install the "
-                "fairseq snapshot a54021305d6b3c4c5959ac9395135f63202db8f1."
-            ) from exc
-        raise
+    from baselines.rawtfnet.model_scripts.rawtfnet import RawTFNet
 
-    model_args = SimpleNamespace()
-    model = Model(model_args, device=device).to(device)
-    state_dict = _load_checkpoint_state_dict(ckpt_path, device)
-    try:
-        model.load_state_dict(state_dict, strict=True)
-    except RuntimeError as exc:
-        raise RuntimeError(
-            f"Could not load XLSR-SLS checkpoint {ckpt_path}. "
-            "This adapter expects the official XLS-R 300M + SLS architecture."
-        ) from exc
+    model = RawTFNet(sample_rate=16000).to(device)
+    model.load_state_dict(_load_checkpoint_state_dict(ckpt_path, device), strict=True)
     return model
 
 
 def _run_eval(args, compute_eer: bool) -> None:
-    ckpt_path = Path(
-        args.ckpt
-        or os.environ.get("XLSR_SLS_CKPT")
-        or os.environ.get("XLSR_SLS_CKPT_2019")
-        or DEFAULT_CKPT_2019
-    )
+    ckpt_path = Path(args.ckpt or os.environ.get("RAWTFNET_CKPT") or DEFAULT_CKPT)
     meta_path, wav_scp_path = _resolve_meta(args)
-    dataset = XLSRSlsEvalDataset(meta_path, wav_scp_path)
-    batch_size = int(os.environ.get("XLSR_SLS_EVAL_BATCH_SIZE", 8))
-    num_workers = int(os.environ.get("XLSR_SLS_EVAL_NUM_WORKERS", 8))
+    dataset = RawTFNetEvalDataset(meta_path, wav_scp_path)
+    batch_size = int(os.environ.get("RAWTFNET_EVAL_BATCH_SIZE", 128))
+    num_workers = int(os.environ.get("RAWTFNET_EVAL_NUM_WORKERS", 8))
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -156,7 +139,7 @@ def _run_eval(args, compute_eer: bool) -> None:
     model = _load_model(ckpt_path, device)
     model.eval()
     print(
-        f"[xlsr_sls] Evaluation files: {len(dataset)}, "
+        f"[rawtfnet] Evaluation files: {len(dataset)}, "
         f"batch_size={batch_size}, num_workers={num_workers}"
     )
 
@@ -172,6 +155,8 @@ def _run_eval(args, compute_eer: bool) -> None:
         for batch_x, batch_y, batch_utt in tqdm(loader, desc="Evaluation", dynamic_ncols=True):
             batch_x = batch_x.to(device, non_blocking=True)
             batch_out = model(batch_x)
+            if batch_out.ndim == 1:
+                batch_out = batch_out.unsqueeze(0)
             batch_scores = batch_out[:, 1].detach().cpu().numpy().ravel()
             utt_ids.extend(batch_utt)
             labels.extend(batch_y.numpy().tolist())
@@ -185,9 +170,10 @@ def _run_eval(args, compute_eer: bool) -> None:
     with open(output_dir / "eval_config.txt", "w") as f:
         f.write(f"dataset={args.dataset}\n")
         f.write(f"checkpoint={ckpt_path}\n")
-        f.write(f"xlsr2_300m_checkpoint={os.environ.get('XLSR2_300M_PATH')}\n")
         f.write("score_higher=bonafide\n")
+        f.write("score_logit_index=1\n")
         f.write("max_len=64600\n")
+        f.write("sample_rate=16000\n")
         f.write(f"batch_size={batch_size}\n")
         f.write(f"num_workers={num_workers}\n")
 
@@ -210,6 +196,6 @@ def score(args) -> None:
 
 def train(args) -> None:
     raise NotImplementedError(
-        "XLSR-SLS training is not wired into the unified CLI. "
-        "Use baselines/xlsr_sls/main.py directly if training from scratch is needed."
+        "RawTFNet training is not wired into the unified CLI. "
+        "Use the upstream scripts under baselines/rawtfnet if training from scratch is needed."
     )

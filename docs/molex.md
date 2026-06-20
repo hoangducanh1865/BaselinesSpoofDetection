@@ -26,13 +26,19 @@ model_config:
 
 ## Dataset dang ho tro
 
-`configs/molex.yaml` dang tro toi:
+`configs/molex.yaml` dang tro toi cac dataset train chinh:
 
 ```text
 asvspoof5:      /home/user14/anhhd/spoof/datasets/asvspoof5
 asvspoof2019la: /home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
 asvspoof2019pa: /home/user14/anhhd/spoof/datasets/asvspoof2019/PA/PA
 in_the_wild:    /home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild
+```
+
+Khi eval cac dataset ngoai YAML, adapter fallback sang `datasets/registry.py`, hien gom:
+
+```text
+asvspoof2021la asvspoof2021df asvspoof2021pa dfadd_test fake_or_real_norm vlsp2025 vsasv
 ```
 
 Adapter se tu tao metadata trung gian tai:
@@ -164,6 +170,17 @@ Eval checkpoint train tren ASVspoof2019 LA:
 python main.py --baseline molex --mode eval --dataset asvspoof2019la --config configs/molex.yaml --ckpt "$CKPT_2019"
 python main.py --baseline molex --mode eval --dataset asvspoof5      --config configs/molex.yaml --ckpt "$CKPT_2019"
 python main.py --baseline molex --mode eval --dataset in_the_wild    --config configs/molex.yaml --ckpt "$CKPT_2019"
+```
+
+Eval them cac dataset moi:
+
+```bash
+python main.py --baseline molex --mode eval --dataset dfadd_test       --config configs/molex.yaml --ckpt "$CKPT_2019"
+python main.py --baseline molex --mode eval --dataset fake_or_real_norm --config configs/molex.yaml --ckpt "$CKPT_2019"
+python main.py --baseline molex --mode eval --dataset vlsp2025         --config configs/molex.yaml --ckpt "$CKPT_2019"
+python main.py --baseline molex --mode eval --dataset vsasv            --config configs/molex.yaml --ckpt "$CKPT_2019"
+python main.py --baseline molex --mode eval --dataset asvspoof2021la   --config configs/molex.yaml --ckpt "$CKPT_2019"
+python main.py --baseline molex --mode eval --dataset asvspoof2021df   --config configs/molex.yaml --ckpt "$CKPT_2019"
 ```
 
 Neu eval ASVspoof5 qua lau, co the tang batch eval neu con VRAM:

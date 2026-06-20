@@ -93,13 +93,24 @@ Moi folder co:
 
 ## Dataset mac dinh
 
-Adapter dang dung cac duong dan mac dinh:
+Adapter dung dataset registry chung trong `datasets/registry.py`. Cac dataset eval dang ho tro gom:
 
 ```bash
-asvspoof5      -> /home/user14/anhhd/spoof/datasets/asvspoof5
-asvspoof2019la -> /home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
-asvspoof2019pa -> /home/user14/anhhd/spoof/datasets/asvspoof2019/PA/PA
-in_the_wild    -> /home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild
+dfadd_test fake_or_real_norm vlsp2025 vsasv in_the_wild asvspoof2019la asvspoof2021la asvspoof2021df asvspoof5
+```
+
+Lenh chay theo thu tu tuong doi be -> lon:
+
+```bash
+python main.py --baseline wav2vec2_aasist --mode eval --dataset dfadd_test --ckpt "$W2V2_AASIST_CKPT_2019"
+python main.py --baseline wav2vec2_aasist --mode eval --dataset fake_or_real_norm --ckpt "$W2V2_AASIST_CKPT_2019"
+python main.py --baseline wav2vec2_aasist --mode eval --dataset vlsp2025 --ckpt "$W2V2_AASIST_CKPT_2019"
+python main.py --baseline wav2vec2_aasist --mode eval --dataset vsasv --ckpt "$W2V2_AASIST_CKPT_2019"
+python main.py --baseline wav2vec2_aasist --mode eval --dataset in_the_wild --ckpt "$W2V2_AASIST_CKPT_2019"
+python main.py --baseline wav2vec2_aasist --mode eval --dataset asvspoof2019la --ckpt "$W2V2_AASIST_CKPT_2019"
+python main.py --baseline wav2vec2_aasist --mode eval --dataset asvspoof2021la --ckpt "$W2V2_AASIST_CKPT_2019"
+python main.py --baseline wav2vec2_aasist --mode eval --dataset asvspoof2021df --ckpt "$W2V2_AASIST_CKPT_2019"
+python main.py --baseline wav2vec2_aasist --mode eval --dataset asvspoof5 --ckpt "$W2V2_AASIST_CKPT_2019"
 ```
 
 Co the override root dataset tam thoi bang `SPOOF_DATA_ROOT` khi can test mot dataset khac cung format.
