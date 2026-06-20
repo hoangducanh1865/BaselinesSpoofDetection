@@ -47,7 +47,17 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
     df["label"] = df["path"].astype(str).map(_label_from_path)
 
     df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
+    dataset_name = data_root.resolve().name
     with open(wav_scp_path, "w") as f:
         for row in df.itertuples(index=False):
-            abs_path = data_root / row.path
+            raw = Path(row.path)
+            if raw.is_absolute():
+                parts = raw.parts
+                try:
+                    idx = parts.index(dataset_name)
+                    abs_path = data_root / Path(*parts[idx + 1:])
+                except ValueError:
+                    abs_path = raw
+            else:
+                abs_path = data_root / raw
             f.write(f"{row.utt_id} {abs_path}\n")
