@@ -43,10 +43,20 @@ def _load_wav_scp(path: Path) -> dict[str, str]:
 
 
 def _pad_fixed(x: np.ndarray, max_len: int = 64600) -> np.ndarray:
+    if x.shape[0] == 0:
+        raise ValueError("empty audio")
     if x.shape[0] >= max_len:
         return x[:max_len]
     repeats = int(max_len / x.shape[0]) + 1
     return np.tile(x, repeats)[:max_len]
+
+
+def _format_error(exc: Exception) -> str:
+    try:
+        message = str(exc)
+    except Exception:
+        message = repr(exc)
+    return f"{type(exc).__name__}: {message}"
 
 
 class RawTFNetEvalDataset(Dataset):
@@ -66,21 +76,41 @@ class RawTFNetEvalDataset(Dataset):
 
     def __getitem__(self, index: int):
         utt_id, label, path = self.rows[index]
-        audio, sample_rate = sf.read(path)
-        if audio.ndim > 1:
-            audio = audio.mean(axis=1)
-        if sample_rate != 16000:
-            try:
-                import librosa
-            except ModuleNotFoundError as exc:
-                raise ModuleNotFoundError(
-                    "RawTFNet eval must resample non-16 kHz audio. Install librosa "
-                    "or convert the dataset to mono 16 kHz first."
-                ) from exc
-            audio = librosa.resample(audio.astype(np.float32), orig_sr=sample_rate, target_sr=16000)
-        audio = _pad_fixed(audio.astype(np.float32))
         y = 1 if label == "bonafide" else 0
-        return Tensor(audio), y, utt_id
+        try:
+            audio, sample_rate = sf.read(path)
+            if audio.ndim > 1:
+                audio = audio.mean(axis=1)
+            if sample_rate != 16000:
+                try:
+                    import librosa
+                except ModuleNotFoundError as exc:
+                    raise ModuleNotFoundError(
+                        "RawTFNet eval must resample non-16 kHz audio. Install librosa "
+                        "or convert the dataset to mono 16 kHz first."
+                    ) from exc
+                audio = librosa.resample(audio.astype(np.float32), orig_sr=sample_rate, target_sr=16000)
+            audio = _pad_fixed(audio.astype(np.float32))
+        except Exception as exc:  # keep eval running and record bad files below
+            return None, y, utt_id, path, _format_error(exc)
+        return Tensor(audio), y, utt_id, path, None
+
+
+def _collate_eval(batch):
+    xs = []
+    ys = []
+    utt_ids = []
+    skipped = []
+    for x, y, utt_id, path, error in batch:
+        if error is not None:
+            skipped.append((utt_id, "bonafide" if y == 1 else "spoof", path, error))
+            continue
+        xs.append(x)
+        ys.append(y)
+        utt_ids.append(utt_id)
+    if not xs:
+        return None, None, None, skipped
+    return torch.stack(xs, dim=0), torch.tensor(ys, dtype=torch.long), utt_ids, skipped
 
 
 def _compute_eer(labels: np.ndarray, scores: np.ndarray) -> tuple[float, float]:
@@ -136,6 +166,7 @@ def _run_eval(args, compute_eer: bool) -> None:
         drop_last=False,
         pin_memory=True,
         num_workers=num_workers,
+        collate_fn=_collate_eval,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -154,8 +185,12 @@ def _run_eval(args, compute_eer: bool) -> None:
     utt_ids = []
     labels = []
     scores = []
+    skipped_rows = []
     with torch.inference_mode():
-        for batch_x, batch_y, batch_utt in tqdm(loader, desc="Evaluation", dynamic_ncols=True):
+        for batch_x, batch_y, batch_utt, batch_skipped in tqdm(loader, desc="Evaluation", dynamic_ncols=True):
+            skipped_rows.extend(batch_skipped)
+            if batch_x is None:
+                continue
             batch_x = batch_x.to(device, non_blocking=True)
             batch_out = model(batch_x)
             if batch_out.ndim == 1:
@@ -179,6 +214,15 @@ def _run_eval(args, compute_eer: bool) -> None:
         f.write("sample_rate=16000\n")
         f.write(f"batch_size={batch_size}\n")
         f.write(f"num_workers={num_workers}\n")
+        f.write(f"skipped_files={len(skipped_rows)}\n")
+
+    if skipped_rows:
+        skipped_path = output_dir / "skipped_audio.tsv"
+        with open(skipped_path, "w") as f:
+            f.write("utt_id\tlabel\tpath\terror\n")
+            for utt_id, label, path, error in skipped_rows:
+                f.write(f"{utt_id}\t{label}\t{path}\t{error}\n")
+        print(f"Skipped {len(skipped_rows)} unreadable files; details written to {skipped_path}")
 
     print(f"Scores written to {score_path}")
     if compute_eer:
