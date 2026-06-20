@@ -21,6 +21,7 @@ from baselines.eval_audio import (
     read_mono_audio,
     repeat_or_trim,
     tensor_or_error,
+    write_eer_unavailable,
     write_skipped_audio,
 )
 from datasets.registry import ensure_eval_meta
@@ -201,11 +202,15 @@ def _run_eval(args, compute_eer: bool) -> None:
 
     print(f"Scores written to {score_path}")
     if compute_eer:
-        eer, threshold = _compute_eer(np.asarray(labels), np.asarray(scores))
-        with open(output_dir / "eval_EER.txt", "w") as f:
-            f.write(f"EER: {eer:.9f}\n")
-            f.write(f"Threshold: {threshold:.9f}\n")
-        print(f"EER: {eer:.3f}% (threshold {threshold:.6f})")
+        try:
+            eer, threshold = _compute_eer(np.asarray(labels), np.asarray(scores))
+        except ValueError as exc:
+            write_eer_unavailable(output_dir, exc)
+        else:
+            with open(output_dir / "eval_EER.txt", "w") as f:
+                f.write(f"EER: {eer:.9f}\n")
+                f.write(f"Threshold: {threshold:.9f}\n")
+            print(f"EER: {eer:.3f}% (threshold {threshold:.6f})")
 
 
 def eval(args) -> None:  # noqa: A001 - dispatched by name from main.py

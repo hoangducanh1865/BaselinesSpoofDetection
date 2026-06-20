@@ -113,3 +113,11 @@ def write_skipped_audio(output_dir: Path, skipped_rows: list[tuple[str, str, str
         for utt_id, label, path, error in skipped_rows:
             f.write(f"{utt_id}\t{label}\t{path}\t{error}\n")
     print(f"Skipped {len(skipped_rows)} unreadable files; details written to {skipped_path}")
+
+
+def write_eer_unavailable(output_dir: Path, exc: Exception) -> None:
+    output_path = output_dir / "eval_EER.txt"
+    with open(output_path, "w") as f:
+        f.write("EER: UNAVAILABLE\n")
+        f.write(f"Reason: {format_error(exc)}\n")
+    print(f"EER unavailable: {format_error(exc)}")

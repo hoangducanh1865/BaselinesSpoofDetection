@@ -28,7 +28,7 @@ import yaml
 from torch import Tensor
 from torch.utils.data import Dataset
 
-from baselines.eval_audio import collate_eval_fixed, format_error, write_skipped_audio
+from baselines.eval_audio import collate_eval_fixed, format_error, write_eer_unavailable, write_skipped_audio
 from datasets.registry import ensure_dataset_meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -321,8 +321,12 @@ def _run_eval(args, compute_eer: bool) -> None:
     print(f"Scores written to {score_path}")
 
     if compute_eer:
-        eer, threshold = compute_nist_eer(sc_file=score_path, output_file=output_dir / "eval_EER.txt")
-        print(f"EER: {eer:.3f}% (threshold {threshold:.6f})")
+        try:
+            eer, threshold = compute_nist_eer(sc_file=score_path, output_file=output_dir / "eval_EER.txt")
+        except ValueError as exc:
+            write_eer_unavailable(output_dir, exc)
+        else:
+            print(f"EER: {eer:.3f}% (threshold {threshold:.6f})")
 
 
 def eval(args) -> None:  # noqa: A001 - dispatched by name from main.py
