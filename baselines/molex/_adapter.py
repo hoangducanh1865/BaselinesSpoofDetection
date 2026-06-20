@@ -25,7 +25,10 @@ from pathlib import Path
 import pandas as pd
 import torch
 import yaml
+from torch import Tensor
+from torch.utils.data import Dataset
 
+from baselines.eval_audio import collate_eval_fixed, format_error, write_skipped_audio
 from datasets.registry import ensure_dataset_meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -158,6 +161,28 @@ def _run_torchrun(config_path: Path, meta_dir: Path, feat_file: Path, output_dir
     subprocess.run(cmd, cwd=str(MOLEX_DIR), env=env, check=True)
 
 
+class MolexSafeEvalDataset(Dataset):
+    def __init__(self, list_ids, labels, file_paths):
+        self.list_ids = list(list_ids)
+        self.labels = list(labels)
+        self.file_paths = list(file_paths)
+
+    def __len__(self) -> int:
+        return len(self.list_ids)
+
+    def __getitem__(self, index: int):
+        from data_utils_NEW import load_audio, pad_eval  # noqa: E402
+
+        utt_id = self.list_ids[index]
+        y = int(self.labels[index])
+        path = self.file_paths[index]
+        try:
+            audio = pad_eval(load_audio(path, utt_id=utt_id))
+        except Exception as exc:
+            return None, y, utt_id, path, format_error(exc)
+        return Tensor(audio), y, utt_id, path, None
+
+
 def train(args) -> None:
     cfg = _load_yaml_config(args)
     meta_dir, feat_file = _resolve_meta(cfg, args)
@@ -192,7 +217,7 @@ def train(args) -> None:
 
 def _load_model_and_eval_loader(cfg: dict, args):
     sys.path.insert(0, str(MOLEX_SRC))
-    from data_utils_NEW import CyberEvalDataset, gen_cyber_list  # noqa: E402
+    from data_utils_NEW import gen_cyber_list  # noqa: E402
     from torch.utils.data import DataLoader  # noqa: E402
 
     meta_dir, feat_file = _resolve_meta(cfg, args)
@@ -200,7 +225,7 @@ def _load_model_and_eval_loader(cfg: dict, args):
 
     eval_keys, eval_labs, eval_paths = gen_cyber_list(
         meta_file=meta_dir / f"fold{fold}_evaluation.tsv", feat_file=feat_file)
-    eval_set = CyberEvalDataset(list_ids=eval_keys, labels=eval_labs, file_paths=eval_paths)
+    eval_set = MolexSafeEvalDataset(list_ids=eval_keys, labels=eval_labs, file_paths=eval_paths)
     runtime_cfg = cfg.get("runtime", {})
     eval_batch_size = int(os.environ.get(
         "MOLEX_EVAL_BATCH_SIZE",
@@ -217,6 +242,7 @@ def _load_model_and_eval_loader(cfg: dict, args):
         drop_last=False,
         pin_memory=True,
         num_workers=eval_num_workers,
+        collate_fn=collate_eval_fixed,
     )
     print(
         f"[molex] Evaluation files: {len(eval_set)}, "
@@ -255,17 +281,43 @@ def _eval_output_dir(args, ckpt_path: Path) -> Path:
 def _run_eval(args, compute_eer: bool) -> None:
     cfg = _load_yaml_config(args)
     model, eval_loader, device, ckpt_path = _load_model_and_eval_loader(cfg, args)
-    from main_molex import compute_nist_eer, produce_evaluation_file  # noqa: E402
+    from main_molex import compute_nist_eer  # noqa: E402
+    from tqdm import tqdm  # noqa: E402
 
     output_dir = _eval_output_dir(args, ckpt_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     score_path = output_dir / ("eval_output.txt" if compute_eer else "score.txt")
 
+    fname_list = []
+    lab_list = []
+    score_list = []
+    skipped_rows = []
+    model.eval()
+    with torch.inference_mode():
+        for batch_x, batch_y, batch_utt, batch_skipped in tqdm(
+            eval_loader, desc="Evaluation", dynamic_ncols=True, leave=True
+        ):
+            skipped_rows.extend(batch_skipped)
+            if batch_x is None:
+                continue
+            batch_x = batch_x.to(device, non_blocking=True)
+            batch_out = model(batch_x)
+            batch_scores = batch_out[:, 1].detach().cpu().numpy().ravel()
+            fname_list.extend(batch_utt)
+            lab_list.extend(batch_y.numpy().tolist())
+            score_list.extend(batch_scores.tolist())
+
+    with open(score_path, "w") as f:
+        for utt_id, label, score in zip(fname_list, lab_list, score_list):
+            label_text = "bonafide" if label == 1 else "spoof"
+            f.write(f"{utt_id}\t{label_text}\t{score}\n")
+
     with open(output_dir / "eval_config.txt", "w") as f:
         f.write(f"dataset={args.dataset}\n")
         f.write(f"checkpoint={ckpt_path}\n")
+        f.write(f"skipped_files={len(skipped_rows)}\n")
 
-    produce_evaluation_file(eval_loader, model, device, score_path)
+    write_skipped_audio(output_dir, skipped_rows)
     print(f"Scores written to {score_path}")
 
     if compute_eer:

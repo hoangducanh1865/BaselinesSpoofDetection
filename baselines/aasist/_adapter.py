@@ -17,11 +17,18 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import soundfile as sf
 import torch
-from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+
+from baselines.eval_audio import (
+    collate_eval_fixed,
+    load_wav_scp,
+    read_mono_audio,
+    repeat_or_trim,
+    tensor_or_error,
+    write_skipped_audio,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AASIST_DIR = Path(__file__).resolve().parent
@@ -106,27 +113,14 @@ def _resolve_meta(args) -> tuple[Path, Path]:
     return meta_dir / f"fold{fold}_evaluation.tsv", meta_dir / "wav.scp"
 
 
-def _load_wav_scp(path: Path) -> dict[str, str]:
-    mapping = {}
-    with open(path) as f:
-        for line in f:
-            parts = line.strip().split(maxsplit=1)
-            if len(parts) == 2:
-                mapping[parts[0]] = parts[1]
-    return mapping
-
-
 def _pad(x: np.ndarray, max_len: int = 64600) -> np.ndarray:
-    if x.shape[0] >= max_len:
-        return x[:max_len]
-    num_repeats = int(max_len / x.shape[0]) + 1
-    return np.tile(x, num_repeats)[:max_len]
+    return repeat_or_trim(x, max_len)
 
 
 class AASISTEvalDataset(Dataset):
     def __init__(self, meta_path: Path, wav_scp_path: Path):
         df = pd.read_csv(meta_path, sep="\t")
-        wav_scp = _load_wav_scp(wav_scp_path)
+        wav_scp = load_wav_scp(wav_scp_path)
         id_col, label_col = df.columns[:2]
         rows = []
         for row in df.itertuples(index=False):
@@ -141,12 +135,12 @@ class AASISTEvalDataset(Dataset):
 
     def __getitem__(self, index: int):
         utt_id, label, path = self.rows[index]
-        audio, _ = sf.read(path)
-        if audio.ndim > 1:
-            audio = audio.mean(axis=1)
-        audio = _pad(audio.astype(np.float32))
-        y = 1 if label == "bonafide" else 0
-        return Tensor(audio), y, utt_id
+        return tensor_or_error(
+            lambda wav_path: _pad(read_mono_audio(wav_path)),
+            utt_id,
+            label,
+            path,
+        )
 
 
 def _compute_eer(labels: np.ndarray, scores: np.ndarray) -> tuple[float, float]:
@@ -204,6 +198,7 @@ def _run_eval(args, compute_eer: bool) -> None:
         drop_last=False,
         pin_memory=True,
         num_workers=num_workers,
+        collate_fn=collate_eval_fixed,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -222,8 +217,12 @@ def _run_eval(args, compute_eer: bool) -> None:
     utt_ids = []
     labels = []
     scores = []
+    skipped_rows = []
     with torch.inference_mode():
-        for batch_x, batch_y, batch_utt in tqdm(loader, desc="Evaluation", dynamic_ncols=True):
+        for batch_x, batch_y, batch_utt, batch_skipped in tqdm(loader, desc="Evaluation", dynamic_ncols=True):
+            skipped_rows.extend(batch_skipped)
+            if batch_x is None:
+                continue
             batch_x = batch_x.to(device, non_blocking=True)
             _, batch_out = model(batch_x)
             batch_scores = batch_out[:, 1].detach().cpu().numpy().ravel()
@@ -244,6 +243,9 @@ def _run_eval(args, compute_eer: bool) -> None:
         f.write(f"score_higher=bonafide\n")
         f.write(f"batch_size={batch_size}\n")
         f.write(f"num_workers={num_workers}\n")
+        f.write(f"skipped_files={len(skipped_rows)}\n")
+
+    write_skipped_audio(output_dir, skipped_rows)
 
     print(f"Scores written to {score_path}")
     if compute_eer:
