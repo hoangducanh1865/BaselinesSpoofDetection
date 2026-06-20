@@ -149,11 +149,12 @@ run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_AVG" molex_as
 run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
 run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
 
-# Train 2019LA -- best: missing VLSP, DFADD, FoR, VSASV.
-run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# MoLEx train 2019LA is intentionally paused for now.
+# Uncomment when those missing cells are needed:
+# run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 
 # =============================================================================
 # 2) Strong SSL baselines: XLSR-SLS, W2V2-AASIST, Nes2Net.
