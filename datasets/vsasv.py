@@ -11,7 +11,7 @@ _SPOOF_HINTS = (
     "replay",
     "adversarial",
     "partial-spoof",
-    "/spoof/",
+    "spoofed",
     "_vc_",
     "_ra_",
 )
@@ -107,6 +107,9 @@ def _metadata_is_valid(eval_path: Path, wav_scp_path: Path, data_root: Path) -> 
 
 def _label_from_path(path: str) -> str:
     lowered = path.lower()
+    parts = {part.lower() for part in Path(path).parts}
+    if "bonafide" in parts:
+        return "bonafide"
     if any(hint in lowered for hint in _SPOOF_HINTS):
         return "spoof"
     return "bonafide"
