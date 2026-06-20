@@ -9,7 +9,23 @@ from dotenv import load_dotenv
 
 from baselines import REGISTRY
 
-DATASETS = ["asvspoof5", "asvspoof2019la", "asvspoof2019pa", "in_the_wild"]
+DATASETS = [
+    "asvspoof5",
+    "asvspoof2019la",
+    "asvspoof2019pa",
+    "asvspoof2021la",
+    "asvspoof2021df",
+    "asvspoof2021pa",
+    "dfadd_test",
+    "fake_or_real",
+    "fake_or_real_2sec",
+    "fake_or_real_norm",
+    "fake_or_real_original",
+    "fake_or_real_rerec",
+    "in_the_wild",
+    "vlsp2025",
+    "vsasv",
+]
 MODES = ["train", "eval", "score"]
 
 

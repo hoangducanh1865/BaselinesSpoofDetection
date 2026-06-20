@@ -50,14 +50,36 @@ DATASET_MODULES = {
     "asvspoof5": ("datasets.asvspoof5", None),
     "asvspoof2019la": ("datasets.asvspoof2019", "LA"),
     "asvspoof2019pa": ("datasets.asvspoof2019", "PA"),
+    "asvspoof2021la": ("datasets.asvspoof2021", "LA"),
+    "asvspoof2021df": ("datasets.asvspoof2021", "DF"),
+    "asvspoof2021pa": ("datasets.asvspoof2021", "PA"),
+    "dfadd_test": ("datasets.dfadd", None),
+    "fake_or_real": ("datasets.fake_or_real", None),
+    "fake_or_real_2sec": ("datasets.fake_or_real", "2sec"),
+    "fake_or_real_norm": ("datasets.fake_or_real", "norm"),
+    "fake_or_real_original": ("datasets.fake_or_real", "original"),
+    "fake_or_real_rerec": ("datasets.fake_or_real", "rerec"),
     "in_the_wild": ("datasets.in_the_wild", None),
+    "vlsp2025": ("datasets.vlsp2025", None),
+    "vsasv": ("datasets.vsasv", None),
 }
 
 DATA_ROOTS = {
     "asvspoof5": "/home/user14/anhhd/spoof/datasets/asvspoof5",
     "asvspoof2019la": "/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA",
     "asvspoof2019pa": "/home/user14/anhhd/spoof/datasets/asvspoof2019/PA/PA",
+    "asvspoof2021la": "/home/user14/anhhd/spoof/datasets/asvspoof2021",
+    "asvspoof2021df": "/home/user14/anhhd/spoof/datasets/asvspoof2021",
+    "asvspoof2021pa": "/home/user14/anhhd/spoof/datasets/asvspoof2021",
+    "dfadd_test": "/home/user14/anhhd/spoof/datasets/dfadd_test",
+    "fake_or_real": "/home/user14/anhhd/spoof/datasets/fake_or_real",
+    "fake_or_real_2sec": "/home/user14/anhhd/spoof/datasets/fake_or_real",
+    "fake_or_real_norm": "/home/user14/anhhd/spoof/datasets/fake_or_real",
+    "fake_or_real_original": "/home/user14/anhhd/spoof/datasets/fake_or_real",
+    "fake_or_real_rerec": "/home/user14/anhhd/spoof/datasets/fake_or_real",
     "in_the_wild": "/home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild",
+    "vlsp2025": "/home/user14/anhhd/spoof/datasets/vlsp2025",
+    "vsasv": "/home/user14/anhhd/spoof/datasets/vsasv",
 }
 
 
