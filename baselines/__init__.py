@@ -12,7 +12,5 @@ REGISTRY = {
     "sls": "baselines.xlsr_sls._adapter",
     "w2v2_aasist": "baselines.wav2vec2_aasist._adapter",
     "wav2vec2_aasist": "baselines.wav2vec2_aasist._adapter",
-    "whisper_mfcc_mesonet": "baselines.whisper_mfcc_mesonet._adapter",
-    "whispermfccmesonet": "baselines.whisper_mfcc_mesonet._adapter",
     "xlsr_sls": "baselines.xlsr_sls._adapter",
 }
