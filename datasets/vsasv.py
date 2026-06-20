@@ -15,6 +15,7 @@ _SPOOF_HINTS = (
     "_vc_",
     "_ra_",
 )
+_REQUIRED_LABELS = {"bonafide", "spoof"}
 
 
 def _resolve_audio_path(raw_path: str, data_root: Path) -> Path:
@@ -86,7 +87,7 @@ def _metadata_is_valid(eval_path: Path, wav_scp_path: Path, data_root: Path) -> 
         return False
     eval_keys = set(eval_df.iloc[:, 0].astype(str))
     eval_labels = set(eval_df.iloc[:, 1].astype(str).str.lower())
-    if not eval_keys or not eval_labels <= {"bonafide", "spoof"}:
+    if not eval_keys or not eval_labels <= _REQUIRED_LABELS or eval_labels != _REQUIRED_LABELS:
         return False
 
     scp_keys = set()
@@ -111,6 +112,37 @@ def _label_from_path(path: str) -> str:
     return "bonafide"
 
 
+def _rows_from_protocol(df: pd.DataFrame, data_root: Path) -> tuple[list[tuple[str, str, Path]], int]:
+    rows = []
+    missing = 0
+    for row in df.itertuples(index=False):
+        abs_path = _resolve_audio_path(row.path, data_root)
+        if not abs_path.exists():
+            missing += 1
+            continue
+        utt_id = f"vsasv_{len(rows):06d}"
+        rows.append((utt_id, _label_from_path(str(row.path)), abs_path))
+    return rows, missing
+
+
+def _rows_from_audio_tree(data_root: Path) -> list[tuple[str, str, Path]]:
+    audio_root = data_root / _AUDIO_DIR
+    rows = []
+    if not audio_root.exists():
+        return rows
+    for path in sorted(audio_root.rglob("*.wav")):
+        utt_id = f"vsasv_{len(rows):06d}"
+        rows.append((utt_id, _label_from_path(str(path)), path))
+    return rows
+
+
+def _label_counts(rows: list[tuple[str, str, Path]]) -> dict[str, int]:
+    counts = {}
+    for _, label, _ in rows:
+        counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
 def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: bool = False) -> None:
     """Write fold{fold}_evaluation.tsv + wav.scp for VSASV.
 
@@ -132,15 +164,15 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
     df = pd.read_csv(protocol_path, sep=r"\s+", header=None, names=["path", "score"], engine="python")
     df = df.drop_duplicates(subset=["path"]).reset_index(drop=True)
 
-    rows = []
-    missing = 0
-    for row in df.itertuples(index=False):
-        abs_path = _resolve_audio_path(row.path, data_root)
-        if not abs_path.exists():
-            missing += 1
-            continue
-        utt_id = f"vsasv_{len(rows):06d}"
-        rows.append((utt_id, _label_from_path(str(row.path)), abs_path))
+    rows, missing = _rows_from_protocol(df, data_root)
+    source = "protocol"
+    labels = set(_label_counts(rows))
+    if labels != _REQUIRED_LABELS:
+        scanned_rows = _rows_from_audio_tree(data_root)
+        scanned_labels = set(_label_counts(scanned_rows))
+        if scanned_labels == _REQUIRED_LABELS or len(scanned_rows) > len(rows):
+            rows = scanned_rows
+            source = "audio_tree"
 
     eval_df = pd.DataFrame(rows, columns=["utt_id", "label", "path"])
     eval_df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
@@ -149,4 +181,7 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
             f.write(f"{row.utt_id} {row.path}\n")
 
     counts = eval_df["label"].value_counts().to_dict() if not eval_df.empty else {}
-    print(f"[vsasv] {len(eval_df)}/{len(df)} files found; skipped_missing={missing}; labels={counts}")
+    print(
+        f"[vsasv] source={source}; {len(eval_df)}/{len(df)} files found; "
+        f"skipped_missing={missing}; labels={counts}"
+    )
