@@ -16,6 +16,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from baselines._compat import patch_numpy_legacy_aliases
 from datasets.registry import ensure_eval_meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -118,6 +119,7 @@ def _load_checkpoint_state_dict(ckpt_path: Path, device: torch.device) -> dict:
 
 def _load_model(ckpt_path: Path, device: torch.device):
     os.environ.setdefault("XLSR2_300M_PATH", str(DEFAULT_XLSR))
+    patch_numpy_legacy_aliases()
     try:
         from baselines.wav2vec2_aasist.model import Model
     except ModuleNotFoundError as exc:

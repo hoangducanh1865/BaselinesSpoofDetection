@@ -23,6 +23,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from baselines._compat import patch_numpy_legacy_aliases
 from datasets.registry import ensure_eval_meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -181,6 +182,7 @@ def _load_wavlm_model(ckpt_path: Path, device: torch.device):
 
 def _load_xlsr_model(ckpt_path: Path, device: torch.device):
     os.environ.setdefault("XLSR2_300M_PATH", str(DEFAULT_XLSR))
+    patch_numpy_legacy_aliases()
     try:
         module = importlib.import_module("baselines.nes2net.model_scripts.wav2vec2_Nes2Net_X")
     except ModuleNotFoundError as exc:
