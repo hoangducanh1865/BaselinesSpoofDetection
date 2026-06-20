@@ -14,7 +14,7 @@ Checkpoint pretrained tren ASVspoof2019 LA dang duoc dat tren server tai:
 Model SSL can dung:
 
 ```bash
-/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt
+/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin
 ```
 
 ## Moi truong
@@ -63,7 +63,7 @@ git pull
 conda activate nes2net_anhhd
 
 export XLSR_SLS_CKPT_2019=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/xlsr_sls/xlsr_sls_asvspoof2019la.pth
-export XLSR2_300M_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt
+export XLSR2_300M_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin
 export XLSR_SLS_EVAL_BATCH_SIZE=8
 export XLSR_SLS_EVAL_NUM_WORKERS=8
 

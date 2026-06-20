@@ -14,7 +14,7 @@ Checkpoint pretrained tren ASVspoof2019 LA dang duoc dat tren server tai:
 Model SSL can dung:
 
 ```bash
-/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt
+/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin
 ```
 
 Theo paper va model card, evaluation dung raw waveform mono 16 kHz, crop/pad co dinh ve `64600` samples; score la logit lop `bonafide` o index 1, score cao hon nghia la audio nghieng ve that hon.
@@ -62,7 +62,7 @@ git pull
 conda activate nes2net_anhhd
 
 export W2V2_AASIST_CKPT_2019=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/w2v2_aasist/w2v2_aasist_asvspoof2019la.pth
-export XLSR2_300M_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt
+export XLSR2_300M_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin
 export W2V2_AASIST_EVAL_BATCH_SIZE=8
 export W2V2_AASIST_EVAL_NUM_WORKERS=8
 

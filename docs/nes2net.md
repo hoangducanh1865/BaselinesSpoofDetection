@@ -28,14 +28,14 @@ Da co du 2 SSL checkpoint can thiet:
 
 ```text
 /home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large/WavLM-Large.pt
-/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt
+/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin
 ```
 
 Adapter mac dinh tro toi 2 duong dan nay. Neu can override:
 
 ```bash
 export WAVLM_LARGE_PATH=/path/to/WavLM-Large.pt
-export XLSR2_300M_PATH=/path/to/xlsr2_300m.pt
+export XLSR2_300M_PATH=/path/to/pytorch_model.bin
 ```
 
 Khong can tai them SSL model neu 2 file tren ton tai.
@@ -88,7 +88,7 @@ python - <<'PY'
 import fairseq, torch
 print("fairseq ok")
 for p in [
-    "/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt",
+    "/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin",
     "/home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large/WavLM-Large.pt",
 ]:
     print(p, torch.load(p, map_location="cpu").keys())
@@ -104,7 +104,7 @@ cd /home/user14/anhhd/spoof/BaselinesSpoofDetection
 conda activate nes2net_anhhd
 
 export NES2NET_CKPT_2019=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/nes2net/nes2net_asvspoof2019la.pth
-export XLSR2_300M_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt
+export XLSR2_300M_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin
 export NES2NET_EVAL_BATCH_SIZE=16
 export NES2NET_EVAL_NUM_WORKERS=8
 

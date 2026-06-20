@@ -16,5 +16,5 @@ def patch_numpy_legacy_aliases() -> None:
         "str": str,
     }
     for name, value in aliases.items():
-        if not hasattr(np, name):
+        if name not in np.__dict__:
             setattr(np, name, value)

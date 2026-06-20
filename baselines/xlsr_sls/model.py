@@ -16,7 +16,8 @@ class SSLModel(nn.Module):
 
         cp_path = os.environ.get(
             "XLSR2_300M_PATH",
-            "/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt",
+            "/home/user14/anhhd/spoof/pretrained_ssl_models/"
+            "xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin",
         )
         model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
         self.model = model[0]

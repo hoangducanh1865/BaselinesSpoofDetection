@@ -29,7 +29,10 @@ from datasets.registry import ensure_eval_meta
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NES2NET_DIR = Path(__file__).resolve().parent
 DEFAULT_WAVLM = Path("/home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large/WavLM-Large.pt")
-DEFAULT_XLSR = Path("/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m/xlsr2_300m.pt")
+DEFAULT_XLSR = Path(
+    "/home/user14/anhhd/spoof/pretrained_ssl_models/"
+    "xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin"
+)
 DEFAULT_CKPT_2019 = Path(
     "/home/user14/anhhd/spoof/pretrained_spoof_models/"
     "trained_on_asvspoof2019la/nes2net/nes2net_asvspoof2019la.pth"
