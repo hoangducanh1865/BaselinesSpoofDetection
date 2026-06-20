@@ -73,7 +73,11 @@ export RAWTFNET_EVAL_NUM_WORKERS=${RAWTFNET_EVAL_NUM_WORKERS:-16}
 
 activate_env() {
   local env_name=$1
-  if ! conda activate "$env_name"; then
+  set +u
+  conda activate "$env_name"
+  local status=$?
+  set -u
+  if [ "$status" -ne 0 ]; then
     echo "[FATAL] Could not activate conda env: $env_name" >&2
     exit 1
   fi
