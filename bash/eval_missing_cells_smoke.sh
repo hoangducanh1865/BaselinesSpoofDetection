@@ -29,15 +29,22 @@ if ! command -v timeout >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v conda >/dev/null 2>&1; then
+init_conda() {
   if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
     # shellcheck disable=SC1091
     source "$HOME/miniconda3/etc/profile.d/conda.sh"
   elif [ -f "/home/user14/miniconda3/etc/profile.d/conda.sh" ]; then
     # shellcheck disable=SC1091
     source "/home/user14/miniconda3/etc/profile.d/conda.sh"
+  elif command -v conda >/dev/null 2>&1; then
+    eval "$(conda shell.bash hook)"
+  else
+    echo "[FATAL] conda is not available." >&2
+    exit 1
   fi
-fi
+}
+
+init_conda
 
 export PYTHONUNBUFFERED=1
 
