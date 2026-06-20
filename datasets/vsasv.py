@@ -17,6 +17,45 @@ _SPOOF_HINTS = (
 )
 
 
+def _resolve_audio_path(raw_path: str, data_root: Path) -> Path:
+    raw = Path(str(raw_path))
+    parts = raw.parts
+
+    for marker in ("dataset-16", "dataset"):
+        if marker in parts:
+            marker_idx = parts.index(marker)
+            suffix = Path(*parts[marker_idx + 1:])
+            return data_root / _AUDIO_DIR / suffix
+
+    if raw.is_absolute():
+        return raw
+    return data_root / raw
+
+
+def _metadata_is_valid(eval_path: Path, wav_scp_path: Path) -> bool:
+    if not eval_path.exists() or not wav_scp_path.exists():
+        return False
+
+    eval_df = pd.read_csv(eval_path, sep="\t")
+    if eval_df.empty:
+        return False
+    eval_keys = set(eval_df.iloc[:, 0].astype(str))
+    eval_labels = set(eval_df.iloc[:, 1].astype(str).str.lower())
+    if not eval_keys or not eval_labels <= {"bonafide", "spoof"}:
+        return False
+
+    scp_keys = set()
+    with open(wav_scp_path) as f:
+        for line in f:
+            parts = line.strip().split(maxsplit=1)
+            if len(parts) != 2:
+                continue
+            scp_keys.add(parts[0])
+            if not Path(parts[1]).exists():
+                return False
+    return eval_keys <= scp_keys
+
+
 def _label_from_path(path: str) -> str:
     lowered = path.lower()
     if any(hint in lowered for hint in _SPOOF_HINTS):
@@ -38,7 +77,7 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
 
     eval_path = meta_dir / f"fold{fold}_evaluation.tsv"
     wav_scp_path = meta_dir / "wav.scp"
-    if not force and eval_path.exists() and wav_scp_path.exists():
+    if not force and _metadata_is_valid(eval_path, wav_scp_path):
         return
 
     protocol_path = data_root / _DEFAULT_PROTOCOL
@@ -50,14 +89,5 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
     df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
     with open(wav_scp_path, "w") as f:
         for row in df.itertuples(index=False):
-            raw = Path(row.path)
-            if raw.is_absolute():
-                parts = raw.parts
-                try:
-                    idx = parts.index("dataset")
-                    abs_path = data_root / _AUDIO_DIR / Path(*parts[idx + 1:])
-                except ValueError:
-                    abs_path = raw
-            else:
-                abs_path = data_root / raw
+            abs_path = _resolve_audio_path(row.path, data_root)
             f.write(f"{row.utt_id} {abs_path}\n")

@@ -20,11 +20,25 @@ TARGET_SR = 16000
 logger = logging.getLogger(__name__)
 
 
-def load_audio(path: str) -> np.ndarray:
+def _exception_detail(exc: BaseException) -> str:
+    args = getattr(exc, "args", ())
+    return f"{type(exc).__name__}: {args!r}"
+
+
+def load_audio(path: str, utt_id: str | None = None) -> np.ndarray:
     """Load a mono waveform and resample it to 16 kHz."""
-    audio, sr = sf.read(path)
+    try:
+        audio, sr = sf.read(path)
+    except Exception as exc:
+        item = f" utt_id={utt_id}" if utt_id is not None else ""
+        raise RuntimeError(
+            f"Failed to read audio{item} path={path!r} ({_exception_detail(exc)})"
+        ) from exc
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
+    if audio.size == 0:
+        item = f" utt_id={utt_id}" if utt_id is not None else ""
+        raise RuntimeError(f"Empty audio{item} path={path!r}")
     if sr != TARGET_SR:
         audio = librosa.resample(audio, orig_sr=sr, target_sr=TARGET_SR)
     return audio.astype(np.float32)
@@ -107,7 +121,7 @@ class CyberDataset(Dataset):
         path = self.file_paths[index]
         y = self.labels[index]
 
-        audio = load_audio(path)
+        audio = load_audio(path, utt_id=utt_id)
         audio = pad_random(audio, self.cut)
         return Tensor(audio), y, utt_id
 
@@ -120,6 +134,6 @@ class CyberEvalDataset(CyberDataset):
         path = self.file_paths[index]
         y = self.labels[index]
 
-        audio = load_audio(path)
+        audio = load_audio(path, utt_id=utt_id)
         audio = pad_eval(audio, self.cut)
         return Tensor(audio), y, utt_id
