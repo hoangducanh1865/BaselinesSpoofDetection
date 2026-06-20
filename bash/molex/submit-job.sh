@@ -1,6 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name=molex_train
 #SBATCH --partition=defq
+#SBATCH --nodelist=dgx02
 #SBATCH --output=logs/molex/%x_%j.out
 #SBATCH --error=logs/molex/%x_%j.err
 #SBATCH --nodes=1
