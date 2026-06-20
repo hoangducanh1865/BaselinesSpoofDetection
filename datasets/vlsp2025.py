@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 _DEFAULT_PROTOCOL = "data-train/split/original+adversarial+tts+vc/dev.txt"
+_AUDIO_DIR = "audio"
 
 
 def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: bool = False) -> None:
@@ -29,17 +30,8 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
     df["label"] = df["label"].astype(str).str.lower().replace({"real": "bonafide", "fake": "spoof"})
 
     df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
-    dataset_name = data_root.resolve().name
     with open(wav_scp_path, "w") as f:
         for row in df.itertuples(index=False):
-            raw = Path(row.path)
-            if raw.is_absolute():
-                parts = raw.parts
-                try:
-                    idx = parts.index(dataset_name)
-                    abs_path = data_root / Path(*parts[idx + 1:])
-                except ValueError:
-                    abs_path = raw
-            else:
-                abs_path = data_root / raw
+            filename = Path(row.path).name
+            abs_path = data_root / _AUDIO_DIR / row.speaker / (filename + ".wav")
             f.write(f"{row.utt_id} {abs_path}\n")
