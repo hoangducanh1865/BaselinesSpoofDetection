@@ -21,7 +21,7 @@ RESUME="${RESUME:-}"
 
 export MOEF_ASVSPOOF2019_LA_ROOT="${MOEF_ASVSPOOF2019_LA_ROOT:-/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA}"
 export MOEF_ASVSPOOF5_ROOT="${MOEF_ASVSPOOF5_ROOT:-/home/user14/anhhd/spoof/datasets/asvspoof5}"
-export MOEF_WAV2VEC2_PATH="${MOEF_WAV2VEC2_PATH:-/home/user14/anhhd/spoof/pretrained_ssl_models/wav2vec2_large_lv60}"
+export MOEF_WAV2VEC2_PATH="${MOEF_WAV2VEC2_PATH:-/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr_300m}"
 export MOEF_OUTPUT_ROOT="${MOEF_OUTPUT_ROOT:-${REPO_DIR}/outputs/moef}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 

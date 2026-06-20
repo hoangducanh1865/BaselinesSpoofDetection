@@ -24,7 +24,7 @@ class Model(nn.Module):
         pretrained_path = (
             os.environ.get("MOEF_WAV2VEC2_PATH")
             or os.environ.get("MOEF_XLSR_HF_PATH")
-            or "/home/user14/anhhd/spoof/pretrained_ssl_models/wav2vec2_large_lv60"
+            or "/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr_300m"
         )
         print(f"Using wav2vec2 checkpoint: {pretrained_path}")
         self.pretrain_model = Wav2Vec2Model.from_pretrained(
