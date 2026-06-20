@@ -29,9 +29,16 @@ def ensure_meta(data_root: Path, meta_dir: Path, fold: int, track=None, force: b
     df["utt_id"] = [f"vlsp2025_{idx:06d}" for idx in range(len(df))]
     df["label"] = df["label"].astype(str).str.lower().replace({"real": "bonafide", "fake": "spoof"})
 
-    df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
+    rows = []
+    for row in df.itertuples(index=False):
+        filename = Path(row.path).name
+        abs_path = data_root / _AUDIO_DIR / row.speaker / (filename + ".wav")
+        if abs_path.exists():
+            rows.append((row.utt_id, row.label, abs_path))
+
+    eval_df = pd.DataFrame(rows, columns=["utt_id", "label", "path"])
+    eval_df[["utt_id", "label"]].to_csv(eval_path, sep="\t", index=False)
     with open(wav_scp_path, "w") as f:
-        for row in df.itertuples(index=False):
-            filename = Path(row.path).name
-            abs_path = data_root / _AUDIO_DIR / row.speaker / (filename + ".wav")
-            f.write(f"{row.utt_id} {abs_path}\n")
+        for _, r in eval_df.iterrows():
+            f.write(f"{r['utt_id']} {r['path']}\n")
+    print(f"[vlsp2025] {len(eval_df)}/{len(df)} files found in extracted audio")
