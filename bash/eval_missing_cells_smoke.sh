@@ -68,7 +68,8 @@ export WAVLM_LARGE_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_lar
 
 export MOLEX_CKPT_ASV5_BEST=/home/user14/anhhd/spoof/BaselinesSpoofDetection/outputs/molex/2026_06_17_13_46_58/weights/epoch_18_0.728.pth
 export MOLEX_CKPT_ASV5_AVG=/home/user14/anhhd/spoof/BaselinesSpoofDetection/outputs/molex/2026_06_17_13_46_58/weights/averaged_checkpoint.pth
-export MOLEX_CKPT_2019LA_BEST=/home/user14/anhhd/spoof/BaselinesSpoofDetection/outputs/molex/2026_06_17_22_55_26/weights/epoch_8_0.071.pth
+export MOLEX_CKPT_2019LA_BEST=/home/user14/anhhd/spoof/BaselinesSpoofDetection/outputs/molex/2026_06_17_22_55_26/weights/epoch_22_0.040.pth
+export MOLEX_CKPT_2019LA_AVG=/home/user14/anhhd/spoof/BaselinesSpoofDetection/outputs/molex/2026_06_17_22_55_26/weights/averaged_checkpoint.pth
 
 export AASIST_CKPT_2019=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/aasist/aasist_asvspoof2019la.pth
 export AASIST_L_CKPT_2019=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/aasist_l/aasist_l_asvspoof2019la.pth
@@ -150,6 +151,9 @@ runpy.run_path('main.py', run_name='__main__')
 }
 
 run_representative() {
+  run_smoke molex_anhhd   molex           dfadd_test "$MOLEX_CKPT_2019LA_BEST"   molex_2019la_best
+  run_smoke molex_anhhd   molex           dfadd_test "$MOLEX_CKPT_2019LA_AVG"    molex_2019la_avg
+
   run_smoke molex_anhhd   molex           dfadd_test "$MOLEX_CKPT_ASV5_BEST"      molex_asv5_best
   run_smoke molex_anhhd   molex           dfadd_test "$MOLEX_CKPT_ASV5_AVG"       molex_asv5_avg
 
@@ -165,7 +169,20 @@ run_representative() {
 }
 
 run_full_scope() {
-  # Same jobs as bash/eval_missing_cells.sh, except MoLEx train 2019LA is paused.
+  # Same jobs as bash/eval_missing_cells.sh.
+  run_smoke molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+  run_smoke molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+  run_smoke molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+  run_smoke molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+
+  run_smoke molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+
   run_smoke molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
   run_smoke molex_anhhd molex vsasv          "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
   run_smoke molex_anhhd molex asvspoof5      "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
