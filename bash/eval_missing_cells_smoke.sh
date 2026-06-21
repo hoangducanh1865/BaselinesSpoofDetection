@@ -173,15 +173,18 @@ run_full_scope() {
   run_smoke molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
   run_smoke molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
   run_smoke molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+  run_smoke molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+  run_smoke molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
   run_smoke molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+  run_smoke molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 
-  run_smoke molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-  run_smoke molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-  run_smoke molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
   run_smoke molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
   run_smoke molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
   run_smoke molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
   run_smoke molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+  run_smoke molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 
   run_smoke molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
   run_smoke molex_anhhd molex vsasv          "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best

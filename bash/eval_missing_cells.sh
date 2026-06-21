@@ -146,23 +146,26 @@ echo "[INFO] XLSR2_300M_PATH=$XLSR2_300M_PATH"
 echo "[INFO] WAVLM_LARGE_PATH=$WAVLM_LARGE_PATH"
 
 # =============================================================================
-# 1) MoLEx: main baseline. Missing cells only.
+# 1) MoLEx: main baseline. Prioritize full 2019LA rows first.
 # =============================================================================
 
-# Train 2019LA -- best: prioritize before the rest when resubmitting.
+# Train 2019LA -- best: full row rerun.
 run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 
-# Train 2019LA -- averaged: full row is still missing.
-run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+# Train 2019LA -- averaged: full row rerun.
 run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 
 # Train ASVspoof5 -- best: missing 2019LA, VSASV, ASV5.
 run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
