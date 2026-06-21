@@ -12,6 +12,13 @@ dataset="${DATASET:-${4:-asvspoof2019la}}"
 output_root="${MOEF_OUTPUT_ROOT:-${repo_dir}/outputs/moef}"
 resume="${RESUME:-}"
 resume_args=()
+batch_size="${MOEF_BATCH_SIZE:-4}"
+epochs="${MOEF_EPOCHS:-50}"
+no_best_epochs="${MOEF_NO_BEST_EPOCHS:-3}"
+num_workers="${MOEF_NUM_WORKERS:-4}"
+progress_log_interval="${MOEF_PROGRESS_LOG_INTERVAL:-100}"
+disable_progress_bar="${MOEF_DISABLE_PROGRESS_BAR:-}"
+progress_args=()
 
 if [[ -n "${resume}" ]]; then
   if [[ "${resume}" == "1" || "${resume}" == "true" || "${resume}" == "latest" ]]; then
@@ -36,11 +43,18 @@ if [[ -z "${savedir}" ]]; then
   savedir="${output_root}/$(date +%Y_%m_%d_%H_%M_%S)"
 fi
 
+if [[ "${disable_progress_bar}" == "1" || "${disable_progress_bar}" == "true" || "${disable_progress_bar}" == "yes" ]]; then
+  progress_args+=(--disable_progress_bar)
+fi
+
 mkdir -p "$(dirname "${savedir}")" b_gpu_log
 
 echo "[moef] Dataset: ${dataset}"
 echo "[moef] Run directory: ${savedir}"
 echo "[moef] Resume: ${resume:-disabled}"
+echo "[moef] Batch size: ${batch_size}"
+echo "[moef] Epochs: ${epochs}"
+echo "[moef] Progress interval: ${progress_log_interval}"
 
 python main_loss.py \
   --seed 888 \
@@ -51,9 +65,10 @@ python main_loss.py \
   --savedir "${savedir}" \
   --optim_lr 0.00001 \
   --gpuid "${gpu}" \
-  --batch_size 4 \
-  --epochs 50 \
-  --no_best_epochs 3 \
+  --batch_size "${batch_size}" \
+  --epochs "${epochs}" \
+  --no_best_epochs "${no_best_epochs}" \
+  --num_workers "${num_workers}" \
   --optim adamw \
   --weight_decay 0.0001 \
   --loss WCE \
@@ -64,5 +79,7 @@ python main_loss.py \
   --moe_experts 4 \
   --moe_exp_hid 128 \
   --loss_weight 0 \
+  --progress_log_interval "${progress_log_interval}" \
   --usingDA \
+  "${progress_args[@]}" \
   "${resume_args[@]}"

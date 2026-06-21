@@ -1,13 +1,20 @@
-import os,yaml,shutil,json
+import os,yaml,shutil,json,time
 from datetime import datetime
 from pathlib import Path
 from utils.arg_parse import f_args_parsed,set_random_seed
 args = f_args_parsed()
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpuid
-import lightning as L
 import importlib
-from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint,LearningRateMonitor
-from lightning.pytorch import loggers as pl_loggers
+import torch
+
+try:
+    import lightning as L
+    from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint, LearningRateMonitor
+    from lightning.pytorch import loggers as pl_loggers
+except Exception:
+    import pytorch_lightning as L
+    from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint, LearningRateMonitor
+    from pytorch_lightning import loggers as pl_loggers
 # arguments initialization
 
 
@@ -33,9 +40,10 @@ def _write_run_config(run_dir, args):
 
 
 def _wandb_logger(run_dir, args):
-    if os.environ.get("WANDB_MODE", "").lower() == "disabled":
+    wandb_mode = os.environ.get("WANDB_MODE", "online").lower()
+    if wandb_mode == "disabled":
         return None
-    if not os.environ.get("WANDB_API_KEY"):
+    if not os.environ.get("WANDB_API_KEY") and wandb_mode != "offline":
         print("[wandb] WANDB_API_KEY is not set; WandB logging disabled.")
         return None
     try:
@@ -61,12 +69,65 @@ def _wandb_logger(run_dir, args):
         "save_dir": str(run_dir / "wandb"),
         "log_model": False,
     }
+    if wandb_mode == "offline":
+        kwargs["offline"] = True
     if args.wandb_entity:
         kwargs["entity"] = args.wandb_entity
     logger = pl_loggers.WandbLogger(**kwargs)
     logger.experiment.config.update(vars(args), allow_val_change=True)
     print(f"[wandb] Logging to project={args.wandb_project}, run={run_name}, id={run_id}")
     return logger
+
+
+def _metric_value(value):
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    return value
+
+
+def _format_metrics(metrics):
+    parts = []
+    for key in ("loss", "loss_epoch", "dev_eer", "dev_tdcf", "lr-AdamW", "lr-Adam"):
+        if key not in metrics:
+            continue
+        value = _metric_value(metrics[key])
+        if isinstance(value, float):
+            parts.append(f"{key}={value:.6g}")
+        else:
+            parts.append(f"{key}={value}")
+    return ", ".join(parts) if parts else "no tracked metrics yet"
+
+
+def _lightning_major_version():
+    try:
+        return int(str(L.__version__).split(".")[0])
+    except Exception:
+        return 2
+
+
+def _env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _trainer_device_kwargs(args):
+    if args.gpuid.strip() and torch.cuda.is_available():
+        device_count = max(torch.cuda.device_count(), 1)
+        kwargs = {
+            "accelerator": "gpu",
+            "devices": device_count,
+        }
+        if device_count > 1:
+            kwargs["strategy"] = "ddp_find_unused_parameters_true" if _lightning_major_version() >= 2 else "ddp"
+        return kwargs
+    return {}
 
 
 def _latest_checkpoint_epoch(path):
@@ -128,6 +189,57 @@ class LatestResumeCheckpoint(Callback):
             print("[checkpoint] Removed latest resume checkpoint after completed training.")
 
 
+class EpochProgressLogger(Callback):
+    def __init__(self, interval):
+        self.interval = max(int(interval), 0)
+        self.epoch_started_at = None
+
+    def on_fit_start(self, trainer, pl_module):
+        if trainer.is_global_zero:
+            print(
+                f"[progress] Training for max_epochs={trainer.max_epochs}; "
+                f"checkpoints={checkpoint_dir}; log_every_n_steps={trainer.log_every_n_steps}",
+                flush=True,
+            )
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        self.epoch_started_at = time.time()
+        if trainer.is_global_zero:
+            print(f"[epoch {trainer.current_epoch:03d}] train start", flush=True)
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if self.interval <= 0 or not trainer.is_global_zero:
+            return
+        step = batch_idx + 1
+        if step % self.interval != 0:
+            return
+        total = trainer.num_training_batches
+        print(
+            f"[epoch {trainer.current_epoch:03d}] train batch {step}/{total}: "
+            f"{_format_metrics(trainer.callback_metrics)}",
+            flush=True,
+        )
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        if not trainer.is_global_zero:
+            return
+        elapsed = time.time() - self.epoch_started_at if self.epoch_started_at else 0.0
+        print(
+            f"[epoch {trainer.current_epoch:03d}] train end after {elapsed:.1f}s: "
+            f"{_format_metrics(trainer.callback_metrics)}",
+            flush=True,
+        )
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if trainer.sanity_checking or not trainer.is_global_zero:
+            return
+        print(
+            f"[epoch {trainer.current_epoch:03d}] validation end: "
+            f"{_format_metrics(trainer.callback_metrics)}",
+            flush=True,
+        )
+
+
 run_dir = _resolve_run_dir(args.savedir)
 args.savedir = str(run_dir)
 try:
@@ -183,25 +295,32 @@ if True:
         if wb_logger is not None:
             loggers.append(wb_logger)
         
-        # model initialization
-        trainer = L.Trainer(
-            max_epochs=args.epochs,
-            strategy='ddp_find_unused_parameters_true',
-            log_every_n_steps = 1,
-            callbacks=[
-                # dev损失无下降就提前停止
+        callbacks = [
+                EpochProgressLogger(args.progress_log_interval),
+                # dev loss does not decrease => early stop
                 EarlyStopping('loss',patience=args.no_best_epochs,mode="min",verbose=True,log_rank_zero_only=True),
-                # 模型按照最低val_loss来保存
+                # Save best model by lowest training loss, while dev_eer stays in filename if available.
                 ModelCheckpoint(monitor='loss',
                                 dirpath=str(checkpoint_dir),
                                 save_top_k=1,
                                 save_weights_only=True,mode="min",filename='best_model-{epoch:02d}-{dev_eer:.4f}-{loss:.4f}'),
                 LatestResumeCheckpoint(checkpoint_dir),
-                LearningRateMonitor(logging_interval='epoch',log_weight_decay=True),
-                ],
-            check_val_every_n_epoch=1,
-            logger=loggers,
-            enable_progress_bar=False
+                LearningRateMonitor(logging_interval='epoch'),
+                ]
+
+        trainer_kwargs = {
+            "max_epochs": args.epochs,
+            "log_every_n_steps": 1,
+            "callbacks": callbacks,
+            "check_val_every_n_epoch": 1,
+            "logger": loggers,
+            "enable_progress_bar": not args.disable_progress_bar,
+        }
+        trainer_kwargs.update(_trainer_device_kwargs(args))
+
+        # model initialization
+        trainer = L.Trainer(
+            **trainer_kwargs
             )
         trainer.fit(
             model=customed_model_wrapper, 

@@ -2,10 +2,15 @@ import os,yaml,shutil
 from utils.arg_parse import f_args_parsed,set_random_seed
 args = f_args_parsed()
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpuid
-import lightning as L
 import importlib
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint,LearningRateMonitor
-from lightning.pytorch import loggers as pl_loggers
+try:
+    import lightning as L
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
+    from lightning.pytorch import loggers as pl_loggers
+except Exception:
+    import pytorch_lightning as L
+    from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
+    from pytorch_lightning import loggers as pl_loggers
 # arguments initialization
 
 ### temporal config
@@ -32,7 +37,7 @@ if True:
     if not args.inference:
         # import model.py
         prj_model = importlib.import_module(args.module_model)
-        
+
         # model 
         model = prj_model.Model(args)
 
@@ -141,4 +146,3 @@ if True:
         #         destination_path = os.path.join(inferfolder, filename)
         #         shutil.move(original_path, destination_path)
         # shutil.rmtree(folder_a)
-        

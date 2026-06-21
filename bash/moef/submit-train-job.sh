@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REPO_DIR="/home/user14/anhhd/spoof/BaselinesSpoofDetection"
-CONDA_ENV="${CONDA_ENV:-moef_anhhd}"
+CONDA_ENV="${CONDA_ENV:-moef_cu113}"
 GPU_ID="${GPU_ID:-0}"
 MODULE_MODEL="${MODULE_MODEL:-w2v2_moe_fz24_aasist}"
 DATASET="${DATASET:-asvspoof2019la}"

@@ -5,7 +5,10 @@ from pathlib import Path
 from torch import Tensor
 from torch.utils.data import Dataset,DataLoader,DistributedSampler
 from .RawBoost import process_Rawboost_feature
-import lightning as L
+try:
+    import lightning as L
+except Exception:
+    import pytorch_lightning as L
 
 
 DEFAULT_ASV2019_LA_ROOT = "/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA"

@@ -1,5 +1,8 @@
 from typing import Any
-import lightning as L
+try:
+    import lightning as L
+except Exception:
+    import pytorch_lightning as L
 import torch
 import logging,os
 from utils.wrapper import loss_wrapper, optim_wrapper,schedule_wrapper   
@@ -84,7 +87,7 @@ class base_model(L.LightningModule):
                 )
         return batch_loss
         
-    def validation_step(self,batch):
+    def validation_step(self, batch, batch_idx):
         # batch[0] -- tensor
         # batch[1] -- label
         # batch[2] -- filename

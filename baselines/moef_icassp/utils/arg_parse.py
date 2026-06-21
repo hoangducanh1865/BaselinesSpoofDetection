@@ -106,9 +106,21 @@ def f_args_parsed(argument_input = None):
         default='',
         help="resume from the latest checkpoint in savedir, a run directory, or an explicit checkpoint",
     )
-    parser.add_argument('--wandb_project', type=str, default=os.environ.get("WANDB_PROJECT", "spoof-detection"))
+    parser.add_argument('--wandb_project', type=str, default=os.environ.get("WANDB_PROJECT", "BaselinesSpoofDetection-MoEF"))
     parser.add_argument('--wandb_entity', type=str, default=os.environ.get("WANDB_ENTITY", ""))
     parser.add_argument('--wandb_name', type=str, default=os.environ.get("WANDB_NAME", ""))
+    parser.add_argument(
+        '--progress_log_interval',
+        type=int,
+        default=int(os.environ.get("MOEF_PROGRESS_LOG_INTERVAL", "100")),
+        help="print one training progress line every N batches; set 0 to disable batch progress lines",
+    )
+    parser.add_argument(
+        '--disable_progress_bar',
+        action='store_true',
+        default=os.environ.get("MOEF_DISABLE_PROGRESS_BAR", "").lower() in {"1", "true", "yes", "on"},
+        help="disable Lightning's interactive progress bar",
+    )
  
     #######
     # ⭐options to load model
