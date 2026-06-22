@@ -106,7 +106,11 @@ if True:
             model=infer_model,
             args = args,
             strict=False)
-        inferer = L.Trainer(logger=pl_loggers.TensorBoardLogger(args.savedir,name=""))
+        inferer = L.Trainer(
+            accelerator="gpu",
+            devices=1,
+            logger=pl_loggers.TensorBoardLogger(args.savedir,name=""),
+        )
         
         # la19
         inferer.test(

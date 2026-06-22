@@ -144,7 +144,7 @@ class base_model(L.LightningModule):
         hdl.setFormatter("")
         self.logging_test.addHandler(hdl)        
         
-    def test_step(self, batch,) -> Any:
+    def test_step(self, batch, batch_idx) -> Any:
         # batch[0] -- tensor
         # batch[1] -- filename
         
