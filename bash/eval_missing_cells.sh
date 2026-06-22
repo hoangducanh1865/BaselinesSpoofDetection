@@ -45,6 +45,11 @@ export MOLEX_CKPT_ASV5_AVG=/home/user14/anhhd/spoof/BaselinesSpoofDetection/outp
 export MOLEX_CKPT_2019LA_BEST=/home/user14/anhhd/spoof/BaselinesSpoofDetection/outputs/molex/2026_06_17_22_55_26/weights/epoch_22_0.040.pth
 export MOLEX_CKPT_2019LA_AVG=/home/user14/anhhd/spoof/BaselinesSpoofDetection/outputs/molex/2026_06_17_22_55_26/weights/averaged_checkpoint.pth
 
+# MoEF checkpoints. The MoEF inference script expects the run directory because it
+# reads hyperparameters and the checkpoint file from there.
+export MOEF_RUN_2019LA=${MOEF_RUN_2019LA:-/home/user14/anhhd/spoof/BaselinesSpoofDetection/outputs/moef/2026_06_21_18_11_31}
+export MOEF_CKPT_2019LA=${MOEF_CKPT_2019LA:-"$MOEF_RUN_2019LA/checkpoints/best_model-epoch=31-dev_eer=6.0449-loss=0.0083.ckpt"}
+
 # Pretrained checkpoints.
 export AASIST_CKPT_2019=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/aasist/aasist_asvspoof2019la.pth
 export AASIST_L_CKPT_2019=/home/user14/anhhd/spoof/pretrained_spoof_models/trained_on_asvspoof2019la/aasist_l/aasist_l_asvspoof2019la.pth
@@ -70,12 +75,19 @@ export NES2NET_EVAL_BATCH_SIZE=${NES2NET_EVAL_BATCH_SIZE:-16}
 export NES2NET_EVAL_NUM_WORKERS=${NES2NET_EVAL_NUM_WORKERS:-8}
 export RAWTFNET_EVAL_BATCH_SIZE=${RAWTFNET_EVAL_BATCH_SIZE:-128}
 export RAWTFNET_EVAL_NUM_WORKERS=${RAWTFNET_EVAL_NUM_WORKERS:-16}
+export MOEF_EVAL_BATCH_SIZE=${MOEF_EVAL_BATCH_SIZE:-128}
+export MOEF_EVAL_NUM_WORKERS=${MOEF_EVAL_NUM_WORKERS:-4}
 
 reset_eval_env() {
   export PYTHONUNBUFFERED=1
 
   export XLSR2_300M_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr2_300m__s3prl__converted_ckpts/pytorch_model.bin
   export WAVLM_LARGE_PATH=/home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large__mrdragonfox__llase_g1/pytorch_model.bin
+  export MOEF_WAV2VEC2_PATH=${MOEF_WAV2VEC2_PATH:-/home/user14/anhhd/spoof/pretrained_ssl_models/xlsr_300m}
+  export MOEF_ASVSPOOF2019_LA_ROOT=${MOEF_ASVSPOOF2019_LA_ROOT:-/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA}
+  export MOEF_ASVSPOOF5_ROOT=${MOEF_ASVSPOOF5_ROOT:-/home/user14/anhhd/spoof/datasets/asvspoof5}
+  export MOEF_IN_THE_WILD_ROOT=${MOEF_IN_THE_WILD_ROOT:-/home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild}
+  export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
 
   export MOLEX_EVAL_BATCH_SIZE=${MOLEX_EVAL_BATCH_SIZE:-128}
   export MOLEX_EVAL_NUM_WORKERS=${MOLEX_EVAL_NUM_WORKERS:-16}
@@ -89,6 +101,8 @@ reset_eval_env() {
   export NES2NET_EVAL_NUM_WORKERS=${NES2NET_EVAL_NUM_WORKERS:-8}
   export RAWTFNET_EVAL_BATCH_SIZE=${RAWTFNET_EVAL_BATCH_SIZE:-128}
   export RAWTFNET_EVAL_NUM_WORKERS=${RAWTFNET_EVAL_NUM_WORKERS:-16}
+  export MOEF_EVAL_BATCH_SIZE=${MOEF_EVAL_BATCH_SIZE:-128}
+  export MOEF_EVAL_NUM_WORKERS=${MOEF_EVAL_NUM_WORKERS:-4}
 }
 
 activate_env() {
@@ -162,31 +176,173 @@ run_or_continue() {
   run_eval "$@" || true
 }
 
+run_moef_eval() {
+  local env_name=$1
+  local run_dir=$2
+  local ckpt=$3
+  local dataset=$4
+  local tag=$5
+  local log_file="$LOG_ROOT/${tag}__moef__${dataset}.log"
+  local score_file
+  local eer_file="$LOG_ROOT/${tag}__moef__${dataset}_eer.txt"
+
+  if [ ! -d "$run_dir" ]; then
+    echo "[SKIP] $tag moef $dataset: missing run directory $run_dir" | tee -a "$LOG_ROOT/skipped.log"
+    return 0
+  fi
+  if [ ! -f "$ckpt" ]; then
+    echo "[SKIP] $tag moef $dataset: missing checkpoint $ckpt" | tee -a "$LOG_ROOT/skipped.log"
+    return 0
+  fi
+
+  activate_env "$env_name"
+  reset_eval_env
+
+  if [ ! -f "$run_dir/hparams.yaml" ] && [ -f "$run_dir/hyperparameters.yaml" ]; then
+    cp "$run_dir/hyperparameters.yaml" "$run_dir/hparams.yaml"
+  fi
+
+  echo
+  echo "================================================================================"
+  echo "[RUN] env=$env_name baseline=moef dataset=$dataset tag=$tag"
+  echo "[RUN_DIR] $run_dir"
+  echo "[CKPT] $ckpt"
+  echo "[LOG] $log_file"
+  echo "================================================================================"
+
+  (
+    cd "$REPO_ROOT/baselines/moef_icassp"
+    python main.py \
+      --inference \
+      --trained_model "$run_dir" \
+      --dataset "$dataset" \
+      --module_model models.moe_research.w2v2_moe_fz24_aasist \
+      --tl_model models.tl_model_moe \
+      --data_module utils.loadData.asvspoof_data_DA \
+      --batch_size "$MOEF_EVAL_BATCH_SIZE" \
+      --num_workers "$MOEF_EVAL_NUM_WORKERS" \
+      --gpuid "${CUDA_VISIBLE_DEVICES:-0}" \
+      --truncate 64600 \
+      --moe_topk 2 \
+      --moe_experts 4 \
+      --moe_exp_hid 128
+  ) 2>&1 | tee "$log_file"
+
+  local status=${PIPESTATUS[0]}
+  if [ "$status" -ne 0 ]; then
+    echo "[FAIL] $tag moef $dataset status=$status" | tee -a "$LOG_ROOT/failed.log"
+    return "$status"
+  fi
+
+  score_file=$(find "$run_dir" -type f -name infer_19.log -exec ls -t {} + 2>/dev/null | head -1 || true)
+  if [ -z "$score_file" ]; then
+    echo "[FAIL] $tag moef $dataset: infer_19.log not found under $run_dir" | tee -a "$LOG_ROOT/failed.log"
+    return 1
+  fi
+
+  if [ "$dataset" = "asvspoof5" ]; then
+    python - "$score_file" <<'PY' 2>&1 | tee "$eer_file"
+import os
+import sys
+from pathlib import Path
+
+import numpy as np
+
+score_file = Path(sys.argv[1])
+root = Path(os.environ.get("MOEF_ASVSPOOF5_ROOT", "/home/user14/anhhd/spoof/datasets/asvspoof5")).expanduser()
+protocol_candidates = [
+    root / "protocols" / "ASVspoof5.eval.track_1.tsv",
+    root / "ASVspoof5_protocols" / "ASVspoof5.eval.track_1.tsv",
+    root / "ASVspoof5.eval.track_1.tsv",
+]
+protocol = next((path for path in protocol_candidates if path.exists()), None)
+if protocol is None:
+    raise FileNotFoundError("ASVspoof5 eval protocol not found")
+
+labels = {}
+with open(protocol, "r") as f:
+    for line in f:
+        parts = line.strip().split()
+        if len(parts) >= 9:
+            labels[parts[1]] = 1 if parts[8] == "bonafide" else 0
+
+y_true = []
+y_score = []
+with open(score_file, "r") as f:
+    for line in f:
+        parts = line.strip().split()
+        if len(parts) >= 3 and parts[0] in labels:
+            y_true.append(labels[parts[0]])
+            y_score.append(float(parts[2]))
+
+labels_np = np.asarray(y_true)
+scores_np = np.asarray(y_score)
+bona = labels_np == 1
+spoof = labels_np == 0
+if not bona.any() or not spoof.any():
+    raise RuntimeError("ASVspoof5 eval EER needs both bonafide and spoof scores")
+
+order = np.argsort(scores_np)
+sorted_labels = labels_np[order]
+n_bona = bona.sum()
+n_spoof = spoof.sum()
+false_reject = np.cumsum(sorted_labels == 1) / n_bona
+false_accept = (n_spoof - np.cumsum(sorted_labels == 0)) / n_spoof
+idx = np.argmin(np.abs(false_reject - false_accept))
+eer = float((false_reject[idx] + false_accept[idx]) / 2.0 * 100.0)
+print(f"ASVspoof5 eval trials matched: {len(y_true)}")
+print(f"CM SYSTEM")
+print(f"   EER            = {eer:8.5f} % (Equal error rate for countermeasure)")
+PY
+  else
+    (
+      cd "$REPO_ROOT/baselines/moef_icassp"
+      python utils/tools/cul_eer.py --pos 2 --scoreFile "$score_file"
+    ) 2>&1 | tee "$eer_file"
+  fi
+
+  status=${PIPESTATUS[0]}
+  if [ "$status" -ne 0 ]; then
+    echo "[FAIL] $tag moef $dataset eer status=$status" | tee -a "$LOG_ROOT/failed.log"
+    return "$status"
+  fi
+  echo "[DONE] $tag moef $dataset score=$score_file eer=$eer_file" | tee -a "$LOG_ROOT/done.log"
+}
+
+run_moef_or_continue() {
+  run_moef_eval "$@" || true
+}
+
 echo "[INFO] Logs: $LOG_ROOT"
 echo "[INFO] XLSR2_300M_PATH=$XLSR2_300M_PATH"
 echo "[INFO] WAVLM_LARGE_PATH=$WAVLM_LARGE_PATH"
 
 # =============================================================================
-# 1) MoLEx: main baseline. Prioritize full 2019LA rows first.
+# 0) MoEF: trained on ASVspoof2019LA. ASVspoof5 eval is slow and kept last.
 # =============================================================================
 
-# Train 2019LA -- best: full row rerun.
-run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+run_moef_or_continue moef_cu113 "$MOEF_RUN_2019LA" "$MOEF_CKPT_2019LA" asvspoof2019la moef_2019la_best
 
-# Train 2019LA -- averaged: full row rerun.
+# =============================================================================
+# 1) MoLEx: Train 2019LA rows. Commented cells already exist in the table.
+# =============================================================================
+
+# Train 2019LA -- best.
+# Already have: VLSP=43.865, DFADD=17.243, FoR=11.740, ITW=12.797, 2019LA=0.600.
+# run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+
+# Train 2019LA -- averaged. ASVspoof5 eval is slow and kept last.
 run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 
 # # Train ASVspoof5 -- best: missing 2019LA, VSASV, ASV5.
 # run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
@@ -253,6 +409,14 @@ run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_AVG" molex_
 # run_or_continue nes2net_anhhd rawtfnet asvspoof2019la "$RAWTFNET_CKPT" rawtfnet_2019la
 # run_or_continue nes2net_anhhd rawtfnet vsasv          "$RAWTFNET_CKPT" rawtfnet_2019la
 # run_or_continue nes2net_anhhd rawtfnet asvspoof5      "$RAWTFNET_CKPT" rawtfnet_2019la
+
+# =============================================================================
+# 5) Slow ASVspoof5 evals. Keep these at the end.
+# =============================================================================
+
+run_moef_or_continue moef_cu113 "$MOEF_RUN_2019LA" "$MOEF_CKPT_2019LA" asvspoof5 moef_2019la_best
+run_or_continue molex_anhhd molex asvspoof5 "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+run_or_continue molex_anhhd molex asvspoof5 "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 
 echo
 echo "[INFO] Done. Logs: $LOG_ROOT"
