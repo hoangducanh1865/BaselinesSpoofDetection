@@ -341,7 +341,7 @@ run_or_continue moef_cu113 moef dfadd_test     "$MOEF_CKPT_2019LA" moef_2019la_p
 # run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
 
 run_or_continue moef_cu113 moef vsasv          "$MOEF_CKPT_2019LA" moef_2019la_pretrained
-run_or_continue moef_cu113 moef asvspoof5      "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+# run_or_continue moef_cu113 moef asvspoof5      "$MOEF_CKPT_2019LA" moef_2019la_pretrained
 
 # =============================================================================
 # Commented jobs from previous runs. Keep the code for reproducibility, but do
