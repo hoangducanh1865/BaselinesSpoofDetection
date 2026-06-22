@@ -318,76 +318,76 @@ echo "[INFO] XLSR2_300M_PATH=$XLSR2_300M_PATH"
 echo "[INFO] WAVLM_LARGE_PATH=$WAVLM_LARGE_PATH"
 
 # =============================================================================
-# 0) MoEF: trained on ASVspoof2019LA. ASVspoof5 eval is slow and kept last.
+# Active jobs for this run.
+#
+# Requested:
+#   - MoEF Pretrained 2019LA on VLSP, DFADD, FoR, ITW, VSASV, ASV5.
+#   - MoLEx Train ASVspoof5 best/averaged on ASVspoof2019LA.
+#
+# Order: smaller/faster datasets first; ASVspoof5 is kept last.
 # =============================================================================
 
-run_moef_or_continue moef_cu113 "$MOEF_RUN_2019LA" "$MOEF_CKPT_2019LA" asvspoof2019la moef_2019la_best
+run_or_continue moef_cu113 moef vlsp2025       "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+run_or_continue moef_cu113 moef dfadd_test     "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+run_or_continue moef_cu113 moef fake_or_real   "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+run_or_continue moef_cu113 moef in_the_wild    "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+
+run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
+run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
+
+run_or_continue moef_cu113 moef vsasv          "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+run_or_continue moef_cu113 moef asvspoof5      "$MOEF_CKPT_2019LA" moef_2019la_pretrained
 
 # =============================================================================
-# 1) MoLEx: Train 2019LA rows. Commented cells already exist in the table.
+# Commented jobs from previous runs. Keep the code for reproducibility, but do
+# not execute any of these in the current run.
 # =============================================================================
 
-# Train 2019LA -- best.
-# Already have: VLSP=43.865, DFADD=17.243, FoR=11.740, ITW=12.797, 2019LA=0.600.
+# MoEF trained on ASVspoof2019LA, already completed:
+# run_moef_or_continue moef_cu113 "$MOEF_RUN_2019LA" "$MOEF_CKPT_2019LA" asvspoof2019la moef_2019la_best
+
+# MoLEx Train 2019LA -- best, already completed:
 # run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 # run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 # run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 # run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 # run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
+# run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
 
-# Train 2019LA -- averaged. ASVspoof5 eval is slow and kept last.
-run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
-run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+# MoLEx Train 2019LA -- averaged, already completed:
+# run_or_continue molex_anhhd molex vlsp2025       "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+# run_or_continue molex_anhhd molex dfadd_test     "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+# run_or_continue molex_anhhd molex fake_or_real   "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+# run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+# run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+# run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
+# run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 
-# # Train ASVspoof5 -- best: missing 2019LA, VSASV, ASV5.
-# run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
-# run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
-# run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
-#
-# # Train ASVspoof5 -- averaged: missing ITW, 2019LA, VSASV, ASV5.
-# run_or_continue molex_anhhd molex in_the_wild    "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
-# run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
-# run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
-# run_or_continue molex_anhhd molex asvspoof5      "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
-#
-# # =============================================================================
-# # 2) Strong SSL baselines: XLSR-SLS, W2V2-AASIST, Nes2Net.
-# # =============================================================================
-#
-# # XLSR-SLS pretrained 2019LA: missing VLSP, VSASV, ASV5.
+# MoLEx Train ASVspoof5 rows not requested for this run:
+# run_or_continue molex_anhhd molex vsasv     "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
+# run_or_continue molex_anhhd molex asvspoof5 "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
+# run_or_continue molex_anhhd molex in_the_wild "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
+# run_or_continue molex_anhhd molex vsasv       "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
+# run_or_continue molex_anhhd molex asvspoof5   "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
+
+# Strong SSL baselines:
 # run_or_continue nes2net_anhhd xlsr_sls vlsp2025  "$XLSR_SLS_CKPT_2019" xlsr_sls_2019la
 # run_or_continue nes2net_anhhd xlsr_sls vsasv     "$XLSR_SLS_CKPT_2019" xlsr_sls_2019la
 # run_or_continue nes2net_anhhd xlsr_sls asvspoof5 "$XLSR_SLS_CKPT_2019" xlsr_sls_2019la
-#
-# # W2V2-AASIST pretrained 2019LA: missing VLSP, VSASV, ASV5.
 # run_or_continue nes2net_anhhd wav2vec2_aasist vlsp2025  "$W2V2_AASIST_CKPT_2019" w2v2_aasist_2019la
 # run_or_continue nes2net_anhhd wav2vec2_aasist vsasv     "$W2V2_AASIST_CKPT_2019" w2v2_aasist_2019la
 # run_or_continue nes2net_anhhd wav2vec2_aasist asvspoof5 "$W2V2_AASIST_CKPT_2019" w2v2_aasist_2019la
-#
-# # Nes2Net pretrained 2019LA: missing VLSP, VSASV, ASV5.
 # run_or_continue nes2net_anhhd nes2net vlsp2025  "$NES2NET_CKPT_2019" nes2net_2019la
 # run_or_continue nes2net_anhhd nes2net vsasv     "$NES2NET_CKPT_2019" nes2net_2019la
 # run_or_continue nes2net_anhhd nes2net asvspoof5 "$NES2NET_CKPT_2019" nes2net_2019la
-#
-# # Nes2Net pretrained ASV5: missing VLSP, VSASV, ASV5.
 # run_or_continue nes2net_anhhd nes2net vlsp2025  "$NES2NET_CKPT_ASV5" nes2net_asv5
 # run_or_continue nes2net_anhhd nes2net vsasv     "$NES2NET_CKPT_ASV5" nes2net_asv5
 # run_or_continue nes2net_anhhd nes2net asvspoof5 "$NES2NET_CKPT_ASV5" nes2net_asv5
-#
-# # =============================================================================
-# # 3) AASIST family.
-# # =============================================================================
-#
-# # AASIST pretrained 2019LA: missing VSASV, ASV5.
+
+# AASIST family:
 # run_or_continue nes2net_anhhd aasist vsasv     "$AASIST_CKPT_2019" aasist_2019la
 # run_or_continue nes2net_anhhd aasist asvspoof5 "$AASIST_CKPT_2019" aasist_2019la
-#
-# # AASIST pretrained ASV5: all table cells are missing. This skips if checkpoint absent.
 # run_or_continue nes2net_anhhd aasist vlsp2025       "$AASIST_CKPT_ASV5" aasist_asv5
 # run_or_continue nes2net_anhhd aasist dfadd_test     "$AASIST_CKPT_ASV5" aasist_asv5
 # run_or_continue nes2net_anhhd aasist fake_or_real   "$AASIST_CKPT_ASV5" aasist_asv5
@@ -395,28 +395,14 @@ run_or_continue molex_anhhd molex vsasv          "$MOLEX_CKPT_2019LA_AVG" molex_
 # run_or_continue nes2net_anhhd aasist asvspoof2019la "$AASIST_CKPT_ASV5" aasist_asv5
 # run_or_continue nes2net_anhhd aasist vsasv          "$AASIST_CKPT_ASV5" aasist_asv5
 # run_or_continue nes2net_anhhd aasist asvspoof5      "$AASIST_CKPT_ASV5" aasist_asv5
-#
-# # AASIST-L pretrained 2019LA: missing VSASV, ASV5.
 # run_or_continue nes2net_anhhd aasist_l vsasv     "$AASIST_L_CKPT_2019" aasist_l_2019la
 # run_or_continue nes2net_anhhd aasist_l asvspoof5 "$AASIST_L_CKPT_2019" aasist_l_2019la
-#
-# # =============================================================================
-# # 4) RawTFNet.
-# # =============================================================================
-#
-# # RawTFNet pretrained 2019LA: missing VLSP, 2019LA, VSASV, ASV5.
+
+# RawTFNet:
 # run_or_continue nes2net_anhhd rawtfnet vlsp2025       "$RAWTFNET_CKPT" rawtfnet_2019la
 # run_or_continue nes2net_anhhd rawtfnet asvspoof2019la "$RAWTFNET_CKPT" rawtfnet_2019la
 # run_or_continue nes2net_anhhd rawtfnet vsasv          "$RAWTFNET_CKPT" rawtfnet_2019la
 # run_or_continue nes2net_anhhd rawtfnet asvspoof5      "$RAWTFNET_CKPT" rawtfnet_2019la
-
-# =============================================================================
-# 5) Slow ASVspoof5 evals. Keep these at the end.
-# =============================================================================
-
-run_moef_or_continue moef_cu113 "$MOEF_RUN_2019LA" "$MOEF_CKPT_2019LA" asvspoof5 moef_2019la_best
-run_or_continue molex_anhhd molex asvspoof5 "$MOLEX_CKPT_2019LA_BEST" molex_2019la_best
-run_or_continue molex_anhhd molex asvspoof5 "$MOLEX_CKPT_2019LA_AVG" molex_2019la_avg
 
 echo
 echo "[INFO] Done. Logs: $LOG_ROOT"
