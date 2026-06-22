@@ -120,6 +120,20 @@ def _load_hparams(run_dir: Path, args) -> SimpleNamespace:
 
 
 def _resolve_meta(args) -> tuple[Path, Path]:
+    target_dir = _output_root() / "meta" / args.dataset
+    target_eval = target_dir / "fold1_evaluation.tsv"
+    target_wav_scp = target_dir / "wav.scp"
+    if target_eval.exists() and target_wav_scp.exists():
+        return target_eval, target_wav_scp
+
+    for baseline in ("molex", "nes2net", "aasist", "xlsr_sls", "wav2vec2_aasist", "rawtfnet"):
+        meta_dir = REPO_ROOT / "outputs" / baseline / "meta" / args.dataset
+        eval_path = meta_dir / "fold1_evaluation.tsv"
+        wav_scp_path = meta_dir / "wav.scp"
+        if eval_path.exists() and wav_scp_path.exists():
+            print(f"[moef] Reusing existing metadata: {meta_dir}")
+            return eval_path, wav_scp_path
+
     return ensure_eval_meta(args.dataset, _output_root(), fold=1)
 
 

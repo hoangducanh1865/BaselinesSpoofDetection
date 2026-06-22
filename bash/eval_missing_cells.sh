@@ -327,13 +327,18 @@ echo "[INFO] WAVLM_LARGE_PATH=$WAVLM_LARGE_PATH"
 # Order: smaller/faster datasets first; ASVspoof5 is kept last.
 # =============================================================================
 
-run_or_continue moef_cu113 moef vlsp2025       "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+# Done: VLSP EER=54.548.
+# run_or_continue moef_cu113 moef vlsp2025       "$MOEF_CKPT_2019LA" moef_2019la_pretrained
 run_or_continue moef_cu113 moef dfadd_test     "$MOEF_CKPT_2019LA" moef_2019la_pretrained
-run_or_continue moef_cu113 moef fake_or_real   "$MOEF_CKPT_2019LA" moef_2019la_pretrained
-run_or_continue moef_cu113 moef in_the_wild    "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+# Done: FoR EER=44.087.
+# run_or_continue moef_cu113 moef fake_or_real   "$MOEF_CKPT_2019LA" moef_2019la_pretrained
+# Done: ITW EER=35.621.
+# run_or_continue moef_cu113 moef in_the_wild    "$MOEF_CKPT_2019LA" moef_2019la_pretrained
 
-run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
-run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
+# Done: 2019LA EER=24.592.
+# run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_BEST" molex_asv5_best
+# Done: 2019LA EER=13.939.
+# run_or_continue molex_anhhd molex asvspoof2019la "$MOLEX_CKPT_ASV5_AVG" molex_asv5_avg
 
 run_or_continue moef_cu113 moef vsasv          "$MOEF_CKPT_2019LA" moef_2019la_pretrained
 run_or_continue moef_cu113 moef asvspoof5      "$MOEF_CKPT_2019LA" moef_2019la_pretrained

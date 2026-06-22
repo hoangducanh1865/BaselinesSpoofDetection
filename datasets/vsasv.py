@@ -1,5 +1,7 @@
 """Convert VSASV CM scenario files into fold*.tsv + wav.scp files."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import pandas as pd
