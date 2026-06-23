@@ -2,6 +2,8 @@
 # None means the baseline folder exists under baselines/ but isn't wired up yet.
 REGISTRY = {
     "molex": "baselines.molex._adapter",
+    # SEE-MoLEx ablations live in the repo-level src/ package (see --ablation).
+    "see_molex": "src._adapter",
     "aasist": "baselines.aasist._adapter",
     "aasist_l": "baselines.aasist._adapter",
     "eaasist": None,

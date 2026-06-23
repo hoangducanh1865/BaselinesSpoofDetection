@@ -1,0 +1,74 @@
+# SEE-MoLEx hyperparameters + paths.
+#
+# Copied from configs/molex.yaml (same model_config / optim_config / paths that
+# reach the 5.56% EER MoLEx baseline on ASVspoof5), plus a `routing:` block that
+# parameterises the entropy-guided adaptive routing used by the M2 ablation.
+# src/_adapter.py picks the routing *type* per --ablation (M0 -> top-K, M2 ->
+# entropy) and injects model_config.routing before launching training/eval.
+
+batch_size: 32
+num_epochs: 30
+
+cudnn_deterministic_toggle: true
+cudnn_benchmark_toggle: false
+
+model_config:
+  num_expert: 12
+  num_MOE_layer: 12
+  expert_rank: 32
+  topk: 4
+  SSL_dim: 1024
+  model_name: Model_MoLEx
+  SSL_layer_num: 12
+  Finetune_id: "False"
+  nb_samp: 64600
+  # Overridable via env MOLEX_WAVLM_CHECKPOINT.
+  wavlm_checkpoint: /home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large__mrdragonfox__llase_g1/pytorch_model.bin
+
+# Entropy-guided adaptive routing (SEE-MoLEx proposal, Section 4.2). Used only
+# when the ablation selects routing_type=entropy (e.g. M2). Ignored for M0.
+routing:
+  tau_max: 2.0          # initial temperature (broad exploration)
+  tau_min: 0.5          # final temperature (specialization); also used at eval
+  k_min: 1              # min active routed experts after warm-up
+  k_max: 6              # max active routed experts after warm-up
+  warmup_epochs: 2      # epochs with all experts active (Eq. 17), prevents collapse
+
+optim_config:
+  optimizer: adamw_separate
+  amsgrad: "False"
+  base_lr: 0.0001
+  lora_lr: 0.00001
+  lr_min: 0.0002
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+  lora_weight_decay: 0.00005
+  scheduler: LinearWarm_ExpDecay
+  lr_decay: 0.5
+  decay_LR_max: 50
+  decay_LR_warm: 5
+
+# Repo-level paths. data_root is keyed by --dataset; override the whole map's
+# base via env SPOOF_DATA_ROOT. meta_root/output_dir are repo-relative and land
+# under outputs/ (gitignored, server-only).
+paths:
+  data_root:
+    asvspoof5: /home/user14/anhhd/spoof/datasets/asvspoof5
+    asvspoof2019la: /home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA
+    asvspoof2019pa: /home/user14/anhhd/spoof/datasets/asvspoof2019/PA/PA
+    in_the_wild: /home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild
+  meta_root: outputs/see_molex/meta
+  output_dir: outputs/see_molex/runs
+  fold: 1
+  exp_idx: 0
+
+# torchrun launch settings; num_gpu is overridden by MOLEX_NUM_GPU to match the
+# SLURM --gres allocation.
+runtime:
+  num_gpu: 1
+  # Log W&B batch metrics every N train batches. This does not change training math.
+  wandb_log_interval: 100
+  # Evaluation does not compute gradients, so it can safely use larger batches
+  # than training. Override via MOLEX_EVAL_BATCH_SIZE / MOLEX_EVAL_NUM_WORKERS.
+  eval_batch_size: 128
+  eval_num_workers: 16

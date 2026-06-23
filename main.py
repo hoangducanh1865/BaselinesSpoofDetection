@@ -41,6 +41,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--baseline", required=True, choices=list(REGISTRY))
     p.add_argument("--dataset", default="asvspoof5", choices=DATASETS)
     p.add_argument("--mode", default="train", choices=MODES)
+    p.add_argument("--ablation", default="M2",
+                    choices=["M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7"],
+                    help="Ablation scenario for --baseline see_molex (M2 = Entropy Routing). "
+                         "Ignored by other baselines.")
     p.add_argument("--config", default=None)
     p.add_argument("--seed", type=int, default=1234)
     p.add_argument("--max-steps", type=int, default=None,
