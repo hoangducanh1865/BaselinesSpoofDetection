@@ -45,7 +45,7 @@ ABLATIONS = {
     "M0": {"name": "MoLEx (baseline)", "supported": True, "routing_type": "topk"},
     "M1": {"name": "+ Shared Expert", "supported": True, "routing_type": "topk", "shared": True},
     "M2": {"name": "+ Entropy Routing", "supported": True, "routing_type": "entropy"},
-    "M3": {"name": "+ Shared + Entropy", "supported": False},
+    "M3": {"name": "+ Shared + Entropy", "supported": True, "routing_type": "entropy", "shared": True},
     "M4": {"name": "SEE-MoLEx (full)", "supported": False},
     "M5": {"name": "M4 w/o warm-up", "supported": False},
     "M6": {"name": "M4, tau=1 (static)", "supported": False},
