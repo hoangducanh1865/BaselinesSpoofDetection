@@ -43,7 +43,7 @@ SRC_DIR = Path(__file__).resolve().parent
 # config's `routing:` block, so only the routing *type* is selected here.
 ABLATIONS = {
     "M0": {"name": "MoLEx (baseline)", "supported": True, "routing_type": "topk"},
-    "M1": {"name": "+ Shared Expert", "supported": False},
+    "M1": {"name": "+ Shared Expert", "supported": True, "routing_type": "topk", "shared": True},
     "M2": {"name": "+ Entropy Routing", "supported": True, "routing_type": "entropy"},
     "M3": {"name": "+ Shared + Entropy", "supported": False},
     "M4": {"name": "SEE-MoLEx (full)", "supported": False},
@@ -77,6 +77,11 @@ def _apply_routing(cfg: dict, spec: dict) -> dict:
     routing = {"routing_type": spec["routing_type"]}
     if spec["routing_type"] == "entropy":
         routing.update(cfg.get("routing", {}))  # tau_max/tau_min/k_min/k_max/warmup_epochs
+    if spec.get("shared"):
+        shared_cfg = cfg.get("shared", {})
+        routing["shared_expert"] = True
+        routing["lambda_s"] = shared_cfg.get("lambda_s", 1.0)
+        routing["lambda_r"] = shared_cfg.get("lambda_r", 1.0)
     model_config = dict(cfg["model_config"])
     model_config["routing"] = routing
     cfg = dict(cfg)

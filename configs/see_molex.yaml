@@ -34,6 +34,13 @@ routing:
   k_max: 6              # max active routed experts after warm-up
   warmup_epochs: 2      # epochs with all experts active (Eq. 17), prevents collapse
 
+# Shared LoRA expert (SEE-MoLEx Section 4.1). Used when the ablation enables it
+# (M1; later M3/M4). Carves one always-on expert E_0 out of model_config.num_expert,
+# leaving N-1 routed. Ignored for M0/M2.
+shared:
+  lambda_s: 1.0         # scale for the shared expert output
+  lambda_r: 1.0         # scale for the routed-pool output
+
 optim_config:
   optimizer: adamw_separate
   amsgrad: "False"

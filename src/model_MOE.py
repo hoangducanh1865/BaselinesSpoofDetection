@@ -153,9 +153,20 @@ class SparseMoE(nn.Module):
 
     def __init__(self, n_embed, num_experts, top_k, ex_hidden_dim, routing=None):
         super().__init__()
-        self.router = NoisyTopkRouter(n_embed, num_experts, top_k, **(routing or {}))
-        self.experts = nn.ModuleList([Expert(n_embed, ex_hidden_dim) for _ in range(num_experts)])
-        self.num_experts = num_experts
+        # Copy before popping: Model_MoLEx passes the SAME routing dict to every
+        # MoE layer, so mutating it here would corrupt later layers.
+        routing = dict(routing or {})
+        # Shared LoRA expert (M1, SEE-MoLEx proposal Section 4.1). When enabled, one
+        # always-on expert E_0 is carved out and the routed pool shrinks to N-1.
+        self.use_shared = routing.pop("shared_expert", False)
+        self.lambda_s = routing.pop("lambda_s", 1.0)
+        self.lambda_r = routing.pop("lambda_r", 1.0)
+        num_routed = num_experts - 1 if self.use_shared else num_experts
+
+        self.router = NoisyTopkRouter(n_embed, num_routed, top_k, **routing)
+        self.experts = nn.ModuleList([Expert(n_embed, ex_hidden_dim) for _ in range(num_routed)])
+        self.shared_expert = Expert(n_embed, ex_hidden_dim) if self.use_shared else None
+        self.num_experts = num_routed
         self.top_k = top_k
         self.ex_hidden_dim = ex_hidden_dim
 
@@ -178,6 +189,11 @@ class SparseMoE(nn.Module):
             weighted_output = expert_output * gating_scores
 
             final_output += weighted_output.view(batch_size, seq_len, feature_dim)
+
+        # Always-on shared expert (M1): runs on every token, no gating weight.
+        # With lambda_r = lambda_s = 1.0 this is routed_output + shared_output.
+        if self.shared_expert is not None:
+            final_output = self.lambda_r * final_output + self.lambda_s * self.shared_expert(x)
 
         return final_output
 
