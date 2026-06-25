@@ -138,7 +138,12 @@ def _resume_run_dir(output_root: Path, resume_arg: str) -> Path:
 def _load_yaml_config(args) -> dict:
     config_path = Path(args.config) if args.config else REPO_ROOT / "configs" / "see_molex.yaml"
     with open(config_path) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+
+    dataset_batch_sizes = cfg.get("batch_size_by_dataset", {})
+    if args.dataset in dataset_batch_sizes:
+        cfg["batch_size"] = int(dataset_batch_sizes[args.dataset])
+    return cfg
 
 
 def _resolve_meta(cfg: dict, args) -> tuple[Path, Path]:
@@ -243,6 +248,7 @@ def train(args) -> None:
     ablation, spec = resolved
 
     cfg = _apply_routing(_load_yaml_config(args), spec)
+    print(f"[see_molex] Training batch size for {args.dataset}: {cfg['batch_size']}")
     meta_dir, feat_file = _resolve_meta(cfg, args)
     fold = cfg["paths"]["fold"]
     exp_idx = cfg["paths"]["exp_idx"]

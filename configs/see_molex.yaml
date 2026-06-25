@@ -7,6 +7,9 @@
 # entropy) and injects model_config.routing before launching training/eval.
 
 batch_size: 32
+batch_size_by_dataset:
+  asvspoof5: 32
+  asvspoof2019la: 16
 num_epochs: 30
 
 cudnn_deterministic_toggle: true
