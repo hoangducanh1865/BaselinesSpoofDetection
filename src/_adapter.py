@@ -129,7 +129,14 @@ def _resume_run_dir(output_root: Path, resume_arg: str) -> Path:
             raise FileNotFoundError(f"No SEE-MoLEx run directory found under {output_root} for --resume.")
         return run_dir
 
-    run_dir = output_root / resume_arg
+    requested = Path(resume_arg).expanduser()
+    if requested.is_absolute():
+        run_dir = requested
+    elif (REPO_ROOT / requested).is_dir():
+        run_dir = REPO_ROOT / requested
+    else:
+        run_dir = output_root / requested
+
     if not run_dir.is_dir():
         raise FileNotFoundError(f"SEE-MoLEx resume run directory does not exist: {run_dir}")
     return run_dir
