@@ -355,6 +355,9 @@ def run_train(args):
 
         if rank == 0:
             save_latest_resume_checkpoint(model_save_path, epoch, model)
+            save_validation_loss_checkpoint(
+                model_save_path, epoch, valid_loss, model, keep=5
+            )
 
             saved_checkpoint = False
             if math.isfinite(dev_eer) and dev_eer <= best_dev_eer:
@@ -510,6 +513,41 @@ def save_latest_resume_checkpoint(model_save_path, epoch, model):
     torch.save(model.state_dict(), model_save_path / f"latest_checkpoint_epoch_{epoch}.pth")
 
 
+def validation_loss_checkpoint_info(checkpoint_path):
+    match = re.match(
+        r"validation_epoch_(\d+)_loss_"
+        r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\.pth$",
+        checkpoint_path.name,
+    )
+    if match is None:
+        return None
+    return int(match.group(1)), float(match.group(2))
+
+
+def save_validation_loss_checkpoint(model_save_path, epoch, valid_loss, model, keep=5):
+    """Save the current epoch and retain only the lowest validation-loss checkpoints."""
+    if not math.isfinite(valid_loss):
+        return None
+
+    for checkpoint_path in model_save_path.glob(f"validation_epoch_{epoch}_loss_*.pth"):
+        checkpoint_path.unlink()
+
+    checkpoint_path = model_save_path / f"validation_epoch_{epoch}_loss_{valid_loss:.8f}.pth"
+    torch.save(model.state_dict(), checkpoint_path)
+
+    checkpoints = []
+    for candidate in model_save_path.glob("validation_epoch_*_loss_*.pth"):
+        info = validation_loss_checkpoint_info(candidate)
+        if info is not None:
+            candidate_epoch, candidate_loss = info
+            checkpoints.append((candidate_loss, candidate_epoch, candidate))
+
+    checkpoints.sort(key=lambda item: (item[0], item[1]))
+    for _, _, stale_checkpoint in checkpoints[keep:]:
+        stale_checkpoint.unlink()
+    return checkpoint_path
+
+
 def save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_eer):
     torch.save(
         {
@@ -522,43 +560,48 @@ def save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_e
     )
 
 
-def merge_checkpoint(model_tag, model_save_path):            
-    # Path to your validation loss text file
-    txt_path = model_tag/'valid_loss.txt'
-    losses = read_losses(txt_path)
+def validation_loss_average_paths(model_tag, model_save_path, top_k=5):
+    losses = read_losses(model_tag / "valid_loss.txt")
+    min_epochs = sorted(losses, key=lambda epoch: (losses[epoch], epoch))[:top_k]
 
-    # Sort losses and get the epochs with the 5 minimum validation losses
-    min_epochs = sorted(losses, key=losses.get)[:5]
-
-    # Path to the directory containing checkpoints
-    checkpoint_dir = model_save_path
-
-    # Generate checkpoint file names
-    # Assuming the metric value in the filename isn't needed to identify the checkpoint
-    checkpoint_paths = [os.path.join(checkpoint_dir, f'epoch_{epoch}_*.pth') for epoch in min_epochs]
-
-    # Find the actual file names (since the metric value is unknown)
-    import glob
     actual_checkpoint_paths = []
-    for path_pattern in checkpoint_paths:
-        # This will get the first file matching the pattern
-        actual_checkpoint_paths.extend(glob.glob(path_pattern))
+    missing_epochs = []
+    for epoch in min_epochs:
+        candidates = sorted(model_save_path.glob(f"validation_epoch_{epoch}_loss_*.pth"))
+        if not candidates:
+            # Compatibility for runs started before validation-loss checkpoints
+            # were introduced. These files exist only for some historical epochs.
+            candidates = sorted(model_save_path.glob(f"epoch_{epoch}_*.pth"))
+        if not candidates:
+            candidates = sorted(model_save_path.glob(f"latest_checkpoint_epoch_{epoch}.pth"))
+        if candidates:
+            actual_checkpoint_paths.append(candidates[0])
+        else:
+            missing_epochs.append(epoch)
+    return actual_checkpoint_paths, missing_epochs
 
-    if not actual_checkpoint_paths:
-        actual_checkpoint_paths = sorted(glob.glob(os.path.join(checkpoint_dir, 'epoch_*.pth')))
 
+def merge_checkpoint(model_tag, model_save_path):
+    actual_checkpoint_paths, missing_epochs = validation_loss_average_paths(
+        model_tag, model_save_path
+    )
+    if missing_epochs:
+        print(
+            "[checkpoint-average] Missing weights for top validation-loss epochs: "
+            + ", ".join(map(str, missing_epochs))
+        )
     if not actual_checkpoint_paths:
         raise FileNotFoundError(
-            f"No checkpoints found in {checkpoint_dir}. "
-            "Check whether validation EER was finite and whether checkpoint epoch numbering matches valid_loss.txt."
+            f"No top-validation-loss checkpoints found in {model_save_path}."
         )
 
-    # Average the checkpoints
+    print("[checkpoint-average] Averaging:")
+    for checkpoint_path in actual_checkpoint_paths:
+        print(f"  {checkpoint_path}")
     avg_checkpoint = average_checkpoints(actual_checkpoint_paths)
 
-    best_checkpoint_path = checkpoint_dir/'averaged_checkpoint.pth'
+    best_checkpoint_path = model_save_path / "averaged_checkpoint.pth"
 
-    # Saving the averaged checkpoint
     torch.save(avg_checkpoint, best_checkpoint_path)
     return best_checkpoint_path
 
