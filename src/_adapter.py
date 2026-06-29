@@ -17,7 +17,9 @@ eval()/score() load a checkpoint in a single process and evaluate directly.
 
 import importlib
 import json
+import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -108,6 +110,38 @@ def _latest_checkpoint_run_dir(output_root: Path) -> Path | None:
         return None
     latest_checkpoint = max(checkpoints, key=lambda path: path.stat().st_mtime)
     return latest_checkpoint.parent.parent
+
+
+def _best_eer_checkpoint(run_dir: Path) -> Path | None:
+    history_path = run_dir / "validation_eer_history.txt"
+    if history_path.exists():
+        epoch_eers = {}
+        with history_path.open() as handle:
+            for line in handle:
+                if not line.startswith("Epoch"):
+                    continue
+                try:
+                    epoch_text, eer_text = line.split(":", 1)
+                    epoch = int(epoch_text.split()[1]) - 1
+                    eer = float(eer_text.strip())
+                except (IndexError, ValueError):
+                    continue
+                if math.isfinite(eer):
+                    epoch_eers[epoch] = eer
+
+        for epoch, _ in sorted(epoch_eers.items(), key=lambda item: (item[1], item[0])):
+            checkpoints = sorted((run_dir / "weights").glob(f"epoch_{epoch}_*.pth"))
+            if checkpoints:
+                return checkpoints[0]
+
+    checkpoint_eers = []
+    for checkpoint in (run_dir / "weights").glob("epoch_*.pth"):
+        match = re.fullmatch(r"epoch_(\d+)_([0-9]+(?:\.[0-9]+)?)\.pth", checkpoint.name)
+        if match:
+            checkpoint_eers.append((float(match.group(2)), int(match.group(1)), checkpoint))
+    if not checkpoint_eers:
+        return None
+    return min(checkpoint_eers, key=lambda item: (item[0], item[1]))[2]
 
 
 def _latest_run_dir(output_root: Path) -> Path | None:
@@ -330,7 +364,9 @@ def _load_model_and_eval_loader(cfg: dict, args, ablation: str):
         run_dir = _latest_checkpoint_run_dir(_output_root(ablation))
         if run_dir is None:
             raise FileNotFoundError(f"No SEE-MoLEx checkpoint found under {_output_root(ablation)}.")
-        ckpt_path = run_dir / "weights" / "averaged_checkpoint.pth"
+        ckpt_path = _best_eer_checkpoint(run_dir)
+        if ckpt_path is None:
+            raise FileNotFoundError(f"No finite dev-EER checkpoint found under {run_dir / 'weights'}.")
     # Checkpoints saved by main_molex.run_train come from a DDP-wrapped model
     # (model = DDP(model, ...)), so keys are prefixed with "module.".
     state_dict = torch.load(ckpt_path, map_location="cpu")

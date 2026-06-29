@@ -237,10 +237,18 @@ def run_train(args):
     if args.resume:
         log_rank0(rank, run_log_path, "[resume] Searching for the latest resume checkpoint...")
         resume_checkpoint_path, start_epoch = find_latest_resume_checkpoint(model_save_path)
+        if resume_checkpoint_path is None:
+            resume_checkpoint_path, start_epoch = find_latest_epoch_checkpoint(model_save_path)
+            if resume_checkpoint_path is not None:
+                log_rank0(
+                    rank,
+                    run_log_path,
+                    "[resume] latest_checkpoint file not found; falling back to the latest epoch checkpoint."
+                )
         best_dev_eer = read_best_dev_eer(model_tag)
         if resume_checkpoint_path is None:
             raise FileNotFoundError(
-                f"--resume was requested, but no latest_checkpoint_epoch_*.pth file was found in {model_save_path}"
+                f"--resume was requested, but no model checkpoint was found in {model_save_path}"
             )
         checkpoint = torch.load(resume_checkpoint_path, map_location=device)
         if isinstance(checkpoint, dict) and "model" in checkpoint:
@@ -355,20 +363,14 @@ def run_train(args):
 
         if rank == 0:
             save_latest_resume_checkpoint(model_save_path, epoch, model)
-            save_validation_loss_checkpoint(
-                model_save_path, epoch, valid_loss, model, keep=5
+            epoch_checkpoint_path = save_epoch_checkpoint(
+                model_save_path, epoch, dev_eer, model
             )
 
-            saved_checkpoint = False
+            saved_best_checkpoint = False
             if math.isfinite(dev_eer) and dev_eer <= best_dev_eer:
                 best_dev_eer = dev_eer
-                torch.save(model.state_dict(),
-                    model_save_path / f"epoch_{epoch}_{dev_eer:03.3f}.pth")
-                saved_checkpoint = True
-            elif not any(model_save_path.glob("epoch_*.pth")):
-                torch.save(model.state_dict(),
-                    model_save_path / f"epoch_{epoch}_fallback.pth")
-                saved_checkpoint = True
+                saved_best_checkpoint = True
 
             save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_eer)
 
@@ -377,7 +379,8 @@ def run_train(args):
                 run_log_path,
                 f"Epoch {epoch:03d}: train_loss={running_loss:.6f}, "
                 f"orth_loss={float(running_ortho_loss):.6f}, valid_loss={valid_loss:.6f}, "
-                f"dev_eer={dev_eer:.6f}, lr={scheduler.get_last_lr()[0]:.8f}"
+                f"dev_eer={dev_eer:.6f}, lr={scheduler.get_last_lr()[0]:.8f}, "
+                f"checkpoint={epoch_checkpoint_path}"
             )
             if wandb_run is not None:
                 epoch_step = (epoch + 1) * len(trn_loader)
@@ -390,7 +393,7 @@ def run_train(args):
                         "valid/eer": dev_eer,
                         "valid/threshold": dev_th,
                         "optim/lr": scheduler.get_last_lr()[0],
-                        "checkpoint/saved_best": int(saved_checkpoint),
+                        "checkpoint/saved_best": int(saved_best_checkpoint),
                         "checkpoint/best_dev_eer": best_dev_eer,
                     },
                     step=epoch_step,
@@ -402,7 +405,16 @@ def run_train(args):
         delete_latest_resume_checkpoints(model_save_path)
         append_run_log(run_log_path, "Deleted latest resume checkpoint after completed training.")
 
-        best_checkpoint_path = merge_checkpoint(model_tag, model_save_path)
+        best_checkpoint_path = find_best_eer_checkpoint(model_tag, model_save_path)
+        if best_checkpoint_path is None:
+            best_checkpoint_path, _ = find_latest_epoch_checkpoint(model_save_path)
+            append_run_log(
+                run_log_path,
+                "No finite dev EER checkpoint was found; using the latest epoch checkpoint."
+            )
+        if best_checkpoint_path is None:
+            raise FileNotFoundError(f"No epoch checkpoints found in {model_save_path}.")
+        append_run_log(run_log_path, f"Selected best dev-EER checkpoint: {best_checkpoint_path}")
         
         model.load_state_dict(torch.load(best_checkpoint_path, map_location=device))
 
@@ -513,38 +525,14 @@ def save_latest_resume_checkpoint(model_save_path, epoch, model):
     torch.save(model.state_dict(), model_save_path / f"latest_checkpoint_epoch_{epoch}.pth")
 
 
-def validation_loss_checkpoint_info(checkpoint_path):
-    match = re.match(
-        r"validation_epoch_(\d+)_loss_"
-        r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\.pth$",
-        checkpoint_path.name,
-    )
-    if match is None:
-        return None
-    return int(match.group(1)), float(match.group(2))
-
-
-def save_validation_loss_checkpoint(model_save_path, epoch, valid_loss, model, keep=5):
-    """Save the current epoch and retain only the lowest validation-loss checkpoints."""
-    if not math.isfinite(valid_loss):
-        return None
-
-    for checkpoint_path in model_save_path.glob(f"validation_epoch_{epoch}_loss_*.pth"):
+def save_epoch_checkpoint(model_save_path, epoch, dev_eer, model):
+    """Save model weights for every epoch, independently of metric improvement."""
+    for checkpoint_path in model_save_path.glob(f"epoch_{epoch}_*.pth"):
         checkpoint_path.unlink()
 
-    checkpoint_path = model_save_path / f"validation_epoch_{epoch}_loss_{valid_loss:.8f}.pth"
+    eer_label = f"{dev_eer:.3f}" if math.isfinite(dev_eer) else "nan"
+    checkpoint_path = model_save_path / f"epoch_{epoch}_{eer_label}.pth"
     torch.save(model.state_dict(), checkpoint_path)
-
-    checkpoints = []
-    for candidate in model_save_path.glob("validation_epoch_*_loss_*.pth"):
-        info = validation_loss_checkpoint_info(candidate)
-        if info is not None:
-            candidate_epoch, candidate_loss = info
-            checkpoints.append((candidate_loss, candidate_epoch, candidate))
-
-    checkpoints.sort(key=lambda item: (item[0], item[1]))
-    for _, _, stale_checkpoint in checkpoints[keep:]:
-        stale_checkpoint.unlink()
     return checkpoint_path
 
 
@@ -560,50 +548,30 @@ def save_training_state(model_save_path, epoch, optimizer, scheduler, best_dev_e
     )
 
 
-def validation_loss_average_paths(model_tag, model_save_path, top_k=5):
-    losses = read_losses(model_tag / "valid_loss.txt")
-    min_epochs = sorted(losses, key=lambda epoch: (losses[epoch], epoch))[:top_k]
+def find_best_eer_checkpoint(model_tag, model_save_path):
+    eer_history_path = model_tag / "validation_eer_history.txt"
+    if not eer_history_path.exists():
+        return None
 
-    actual_checkpoint_paths = []
-    missing_epochs = []
-    for epoch in min_epochs:
-        candidates = sorted(model_save_path.glob(f"validation_epoch_{epoch}_loss_*.pth"))
-        if not candidates:
-            # Compatibility for runs started before validation-loss checkpoints
-            # were introduced. These files exist only for some historical epochs.
-            candidates = sorted(model_save_path.glob(f"epoch_{epoch}_*.pth"))
-        if not candidates:
-            candidates = sorted(model_save_path.glob(f"latest_checkpoint_epoch_{epoch}.pth"))
-        if candidates:
-            actual_checkpoint_paths.append(candidates[0])
-        else:
-            missing_epochs.append(epoch)
-    return actual_checkpoint_paths, missing_epochs
+    epoch_eers = []
+    with open(eer_history_path, "r") as file:
+        for line in file:
+            if not line.startswith("Epoch"):
+                continue
+            try:
+                epoch_text, eer_text = line.split(":", 1)
+                epoch = int(epoch_text.split()[1]) - 1
+                dev_eer = float(eer_text.strip())
+            except (IndexError, ValueError):
+                continue
+            if math.isfinite(dev_eer):
+                epoch_eers.append((dev_eer, epoch))
 
-
-def merge_checkpoint(model_tag, model_save_path):
-    actual_checkpoint_paths, missing_epochs = validation_loss_average_paths(
-        model_tag, model_save_path
-    )
-    if missing_epochs:
-        print(
-            "[checkpoint-average] Missing weights for top validation-loss epochs: "
-            + ", ".join(map(str, missing_epochs))
-        )
-    if not actual_checkpoint_paths:
-        raise FileNotFoundError(
-            f"No top-validation-loss checkpoints found in {model_save_path}."
-        )
-
-    print("[checkpoint-average] Averaging:")
-    for checkpoint_path in actual_checkpoint_paths:
-        print(f"  {checkpoint_path}")
-    avg_checkpoint = average_checkpoints(actual_checkpoint_paths)
-
-    best_checkpoint_path = model_save_path / "averaged_checkpoint.pth"
-
-    torch.save(avg_checkpoint, best_checkpoint_path)
-    return best_checkpoint_path
+    for _, epoch in sorted(epoch_eers):
+        checkpoints = sorted(model_save_path.glob(f"epoch_{epoch}_*.pth"))
+        if checkpoints:
+            return checkpoints[0]
+    return None
 
 
 def read_best_dev_eer(model_tag):
@@ -756,41 +724,6 @@ def produce_evaluation_file(
     valid_loss /= num_total
 
     return valid_loss
-
-# Function to read validation losses from the text file
-def read_losses(file_path):
-    losses = {}
-    with open(file_path, 'r') as file:
-        for line in file:
-            if line.startswith('Epoch'):
-                parts = line.split(':')
-                # save_logs writes epochs as 1-based human-readable IDs, while
-                # checkpoint filenames use the zero-based loop index.
-                epoch = int(parts[0].split()[1]) - 1
-                loss = float(parts[1].strip())
-                losses[epoch] = loss
-    return losses
-
-def average_checkpoints(checkpoint_paths):
-    if not checkpoint_paths:
-        raise ValueError("average_checkpoints received an empty checkpoint list")
-
-    # Load all checkpoints and store their state_dicts
-    state_dicts = [torch.load(path) for path in checkpoint_paths]
-
-    # Initialize a dictionary to store the averaged parameters
-    avg_state_dict = {key: torch.zeros_like(state_dicts[0][key]) for key in state_dicts[0]}
-
-    # Sum and average the parameters
-    for key in state_dicts[0]:
-        # Convert to float, sum and average the parameters
-        avg_state_dict[key] = sum([state_dict[key].float() for state_dict in state_dicts]) / len(state_dicts)
-
-        # Convert back to original data type if necessary
-        if state_dicts[0][key].dtype != torch.float32:
-            avg_state_dict[key] = avg_state_dict[key].type(state_dicts[0][key].dtype)
-
-    return avg_state_dict
 
 if __name__ == "__main__":
 
