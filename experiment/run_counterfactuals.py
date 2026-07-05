@@ -18,7 +18,9 @@ from common import (
     evaluate,
     load_manifest,
     load_model,
+    mark_shard_done,
     manifest_model_specs,
+    prepare_shard_output,
     save_frame,
     save_json,
     set_policy,
@@ -39,17 +41,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--bootstrap", type=int, default=300)
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--shard-index", type=int, default=None)
+    parser.add_argument("--shard-size", type=int, default=500)
+    parser.add_argument("--quick", action="store_true")
     return parser.parse_args()
 
 
-def policies(model_name: str, seed: int) -> list[tuple[str, dict]]:
+def policies(model_name: str, seed: int, quick: bool) -> list[tuple[str, dict]]:
     if model_name == "M0":
         return [
             ("fixed_k4", {"mode": "fixed", "k": 4}),
             ("entropy_adaptive", {"mode": "entropy"}),
         ]
-    values = [("entropy_adaptive", {"mode": "entropy"})]
-    values.extend((f"fixed_k{k}", {"mode": "fixed", "k": k}) for k in range(1, 7))
+    values = [
+        ("entropy_adaptive", {"mode": "entropy"}),
+        ("fixed_k4", {"mode": "fixed", "k": 4}),
+    ]
+    if quick:
+        return values
+    values.extend(
+        (f"fixed_k{k}", {"mode": "fixed", "k": k})
+        for k in (1, 2, 3, 5, 6)
+    )
     values.extend(
         [
             ("shuffle_k", {"mode": "shuffle_k", "seed": seed}),
@@ -63,6 +76,11 @@ def main() -> None:
     args = parse_args()
     manifest = load_manifest(args.manifest)
     datasets = args.datasets or manifest["datasets"]
+    output_root = args.output
+    args.output, already_done = prepare_shard_output(output_root, args.shard_index)
+    if already_done:
+        print(f"[counterfactual] shard already complete, skipping: {args.output}")
+        return
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -86,8 +104,15 @@ def main() -> None:
                 args.seed + dataset_index,
                 args.batch_size,
                 args.num_workers,
+                shard_index=args.shard_index,
+                shard_size=args.shard_size,
             )
-            for policy_name, policy in policies(spec.name, args.seed + dataset_index):
+            if sampled.empty:
+                print(f"[counterfactual] empty shard for {dataset}; skipping")
+                continue
+            for policy_name, policy in policies(
+                spec.name, args.seed + dataset_index, args.quick
+            ):
                 set_policy(model, policy)
                 collector = ActiveCountCollector(model)
                 scores, skipped = evaluate(
@@ -187,9 +212,20 @@ def main() -> None:
             "max_items_per_dataset": args.max_items,
             "seed": args.seed,
             "bootstrap_repeats": args.bootstrap,
+            "shard_index": args.shard_index,
+            "shard_size": args.shard_size,
+            "quick": args.quick,
             "checkpoints": checkpoints,
         },
         args.output / "run.json",
+    )
+    mark_shard_done(
+        args.output,
+        {
+            "suite": "counterfactual",
+            "shard_index": args.shard_index,
+            "shard_size": args.shard_size,
+        },
     )
     print(f"[counterfactual] results written to {args.output}")
 

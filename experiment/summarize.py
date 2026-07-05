@@ -19,9 +19,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def read_csv(path: Path) -> pd.DataFrame:
-    if not path.exists():
+    if not path.exists() or path.stat().st_size == 0:
         return pd.DataFrame()
-    return pd.read_csv(path)
+    try:
+        return pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
 
 
 def markdown_table(frame: pd.DataFrame, decimals: int = 4) -> str:

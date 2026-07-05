@@ -20,7 +20,9 @@ from common import (
     gini,
     load_manifest,
     load_model,
+    mark_shard_done,
     manifest_model_specs,
+    prepare_shard_output,
     save_frame,
     save_json,
     set_policy,
@@ -39,6 +41,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--shard-index", type=int, default=None)
+    parser.add_argument("--shard-size", type=int, default=500)
+    parser.add_argument("--quick", action="store_true")
     return parser.parse_args()
 
 
@@ -77,6 +82,13 @@ def main() -> None:
     args = parse_args()
     manifest = load_manifest(args.manifest)
     datasets = args.datasets or manifest["datasets"]
+    if args.quick:
+        args.models = ["M0", "M2", "M3"]
+    output_root = args.output
+    args.output, already_done = prepare_shard_output(output_root, args.shard_index)
+    if already_done:
+        print(f"[profile] shard already complete, skipping: {args.output}")
+        return
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -113,7 +125,12 @@ def main() -> None:
                 seed=args.seed + dataset_index,
                 batch_size=args.batch_size,
                 num_workers=args.num_workers,
+                shard_index=args.shard_index,
+                shard_size=args.shard_size,
             )
+            if sampled.empty:
+                print(f"[profile] empty shard for {dataset}; skipping")
+                continue
             collector = RoutingCollector(
                 model, spec.source, spec.name, dataset, metadata=sampled
             )
@@ -174,6 +191,8 @@ def main() -> None:
                 }
             )
 
+        if spec.source not in entropy_by_dataset:
+            continue
         source_entropy = entropy_by_dataset[spec.source]
         for dataset, target_entropy in entropy_by_dataset.items():
             if dataset == spec.source:
@@ -263,9 +282,20 @@ def main() -> None:
             "suite": "profile",
             "max_items_per_dataset": args.max_items,
             "seed": args.seed,
+            "shard_index": args.shard_index,
+            "shard_size": args.shard_size,
+            "quick": args.quick,
             "checkpoints": checkpoint_rows,
         },
         args.output / "run.json",
+    )
+    mark_shard_done(
+        args.output,
+        {
+            "suite": "profile",
+            "shard_index": args.shard_index,
+            "shard_size": args.shard_size,
+        },
     )
     print(f"[profile] results written to {args.output}")
 

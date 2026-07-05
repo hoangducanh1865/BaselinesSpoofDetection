@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +20,9 @@ from common import (
     evaluate,
     load_manifest,
     load_model,
+    mark_shard_done,
     manifest_model_specs,
+    prepare_shard_output,
     save_frame,
     save_json,
     set_policy,
@@ -48,6 +51,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--bootstrap", type=int, default=300)
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument("--shard-index", type=int, default=None)
+    parser.add_argument("--shard-size", type=int, default=500)
+    parser.add_argument("--quick", action="store_true")
     return parser.parse_args()
 
 
@@ -97,6 +103,14 @@ def main() -> None:
     args = parse_args()
     manifest = load_manifest(args.manifest)
     datasets = args.datasets or manifest["datasets"]
+    output_root = args.output
+    args.output, already_done = prepare_shard_output(output_root, args.shard_index)
+    if already_done:
+        print(f"[attribution] shard already complete, skipping: {args.output}")
+        return
+    if args.quick:
+        args.max_dev_items = min(args.max_dev_items, 500)
+        args.expert_ablation_items = 0
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -117,21 +131,48 @@ def main() -> None:
         )
 
         source_dataset = manifest["sources"][spec.source]["source_dataset"]
-        dev_loader, _ = build_loader(
-            source_dataset,
-            args.config,
-            "validation",
-            args.max_dev_items,
-            args.seed,
-            args.batch_size,
-            args.num_workers,
+        threshold_cache = (
+            output_root
+            / "_threshold_cache"
+            / (
+                f"{spec.source}__{spec.name}__dev{args.max_dev_items}"
+                f"__{spec.checkpoint.stem}.json"
+            )
         )
-        dev_scores, _ = evaluate(
-            model, dev_loader, device, desc=f"dev threshold {spec.source}/{spec.name}"
-        )
-        dev_eer, dev_threshold = eer_and_threshold(
-            dev_scores["label"].to_numpy(), dev_scores["score"].to_numpy()
-        )
+        if threshold_cache.exists():
+            cached = json.loads(threshold_cache.read_text())
+            dev_eer = float(cached["dev_eer"])
+            dev_threshold = float(cached["dev_threshold"])
+            dev_items = int(cached["dev_items"])
+            print(f"[attribution] reusing threshold cache: {threshold_cache}")
+        else:
+            dev_loader, _ = build_loader(
+                source_dataset,
+                args.config,
+                "validation",
+                args.max_dev_items,
+                args.seed,
+                args.batch_size,
+                args.num_workers,
+            )
+            dev_scores, _ = evaluate(
+                model, dev_loader, device, desc=f"dev threshold {spec.source}/{spec.name}"
+            )
+            dev_eer, dev_threshold = eer_and_threshold(
+                dev_scores["label"].to_numpy(), dev_scores["score"].to_numpy()
+            )
+            dev_items = len(dev_scores)
+            save_json(
+                {
+                    "source": spec.source,
+                    "model": spec.name,
+                    "checkpoint": str(spec.checkpoint),
+                    "dev_eer": dev_eer,
+                    "dev_threshold": dev_threshold,
+                    "dev_items": dev_items,
+                },
+                threshold_cache,
+            )
         thresholds[(spec.source, spec.name)] = dev_threshold
         threshold_rows.append(
             {
@@ -139,7 +180,7 @@ def main() -> None:
                 "model": spec.name,
                 "dev_eer": dev_eer,
                 "dev_threshold": dev_threshold,
-                "dev_items": len(dev_scores),
+                "dev_items": dev_items,
             }
         )
 
@@ -152,7 +193,12 @@ def main() -> None:
                 args.seed + dataset_index,
                 args.batch_size,
                 args.num_workers,
+                shard_index=args.shard_index,
+                shard_size=args.shard_size,
             )
+            if sampled.empty:
+                print(f"[attribution] empty shard for {dataset}; skipping")
+                continue
             collector = None
             if spec.name in {"M2", "M3"}:
                 collector = RoutingCollector(model, spec.source, spec.name, dataset)
@@ -194,11 +240,14 @@ def main() -> None:
                         "items": len(scores),
                     }
                 )
-                interventions = [
-                    ("shared_off", 0.0, 1.0),
-                    ("shared_half", 0.5, 1.0),
-                    ("routed_off", 1.0, 0.0),
-                ]
+                interventions = [("shared_off", 0.0, 1.0)]
+                if not args.quick:
+                    interventions.extend(
+                        [
+                            ("shared_half", 0.5, 1.0),
+                            ("routed_off", 1.0, 0.0),
+                        ]
+                    )
                 for intervention, lambda_s, lambda_r in interventions:
                     set_shared_scales(model, lambda_s=lambda_s, lambda_r=lambda_r)
                     intervention_scores, _ = evaluate(
@@ -384,9 +433,20 @@ def main() -> None:
             "expert_ablation_items": args.expert_ablation_items,
             "seed": args.seed,
             "bootstrap_repeats": args.bootstrap,
+            "shard_index": args.shard_index,
+            "shard_size": args.shard_size,
+            "quick": args.quick,
             "checkpoints": checkpoints,
         },
         args.output / "run.json",
+    )
+    mark_shard_done(
+        args.output,
+        {
+            "suite": "attribution",
+            "shard_index": args.shard_index,
+            "shard_size": args.shard_size,
+        },
     )
     print(f"[attribution] results written to {args.output}")
 

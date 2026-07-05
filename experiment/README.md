@@ -119,6 +119,38 @@ After all three finish:
 python experiment/summarize.py --root experiment/results
 ```
 
+## Progressive quick mode
+
+For fast preliminary results, run one deterministic shard per suite. Shards
+are class-stratified by a stable hash of `utt_id`, so shard indices never
+overlap. A completed shard has a `DONE.json` marker and is skipped on rerun.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python -u experiment/run_profiles.py \
+  --quick --shard-index 0 --shard-size 500 --batch-size 128 \
+  --output experiment/results_progressive/profile
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python -u experiment/run_counterfactuals.py \
+  --quick --shard-index 0 --shard-size 500 --batch-size 128 --bootstrap 100 \
+  --output experiment/results_progressive/counterfactual
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=2 python -u experiment/run_attribution.py \
+  --quick --shard-index 0 --shard-size 500 --batch-size 128 --bootstrap 100 \
+  --output experiment/results_progressive/attribution
+```
+
+To add another non-overlapping 500 items per dataset, rerun all three with
+`--shard-index 1`, then `2`, and so on. Rebuild cumulative outputs with:
+
+```bash
+python experiment/aggregate_progressive.py --root experiment/results_progressive
+python experiment/summarize.py --root experiment/results_progressive
+```
+
 ## Optional fresh-training controls
 
 Checkpoint-only counterfactuals cannot prove whether the two-epoch all-expert

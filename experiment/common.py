@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 import sys
@@ -413,6 +414,46 @@ def _stratified_sample(frame: pd.DataFrame, max_items: int, seed: int) -> pd.Dat
     return frame.loc[groups].sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
 
+def _progressive_shard(
+    frame: pd.DataFrame,
+    shard_index: int,
+    shard_size: int,
+    seed: int,
+) -> pd.DataFrame:
+    """Return a deterministic, class-stratified, non-overlapping shard."""
+    if shard_index < 0:
+        raise ValueError("shard_index must be non-negative")
+    if shard_size <= 0:
+        raise ValueError("shard_size must be positive")
+
+    label_counts = frame["label"].value_counts().sort_index()
+    exact_quotas = shard_size * label_counts / max(int(label_counts.sum()), 1)
+    quotas = exact_quotas.astype(int)
+    remainder = shard_size - int(quotas.sum())
+    for label in (exact_quotas - quotas).sort_values(ascending=False).index[:remainder]:
+        quotas.loc[label] += 1
+
+    selected = []
+    for label, quota in quotas.items():
+        if quota <= 0:
+            continue
+        group = frame[frame["label"] == label].copy()
+        group["_shard_hash"] = group["utt_id"].map(
+            lambda utt_id: hashlib.blake2b(
+                f"{seed}:{utt_id}".encode("utf-8"), digest_size=16
+            ).hexdigest()
+        )
+        group = group.sort_values(["_shard_hash", "utt_id"])
+        start = shard_index * int(quota)
+        stop = start + int(quota)
+        selected.append(group.iloc[start:stop].drop(columns="_shard_hash"))
+
+    if not selected:
+        return frame.iloc[0:0].copy()
+    result = pd.concat(selected, ignore_index=True)
+    return result.sort_values("utt_id").reset_index(drop=True)
+
+
 def build_loader(
     dataset: str,
     config_path: Path,
@@ -421,6 +462,8 @@ def build_loader(
     seed: int,
     batch_size: int,
     num_workers: int,
+    shard_index: int | None = None,
+    shard_size: int | None = None,
 ) -> tuple[DataLoader, pd.DataFrame]:
     cfg = load_yaml(config_path)
     fold = int(cfg["paths"]["fold"])
@@ -439,7 +482,15 @@ def build_loader(
         feat_file,
         cfg.get("paths", {}).get("data_root", {}),
     )
-    frame = _stratified_sample(frame, max_items=max_items, seed=seed)
+    if shard_index is not None:
+        frame = _progressive_shard(
+            frame,
+            shard_index=shard_index,
+            shard_size=int(shard_size or max_items),
+            seed=seed,
+        )
+    else:
+        frame = _stratified_sample(frame, max_items=max_items, seed=seed)
     loader = DataLoader(
         ExplainEvalDataset(frame),
         batch_size=batch_size,
@@ -759,3 +810,20 @@ def save_json(value: Any, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as handle:
         json.dump(value, handle, indent=2, sort_keys=True)
+
+
+def prepare_shard_output(
+    output_root: Path,
+    shard_index: int | None,
+) -> tuple[Path, bool]:
+    """Return the run output directory and whether it is already complete."""
+    if shard_index is None:
+        output_root.mkdir(parents=True, exist_ok=True)
+        return output_root, False
+    output_dir = output_root / f"shard_{shard_index:04d}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir, (output_dir / "DONE.json").exists()
+
+
+def mark_shard_done(output_dir: Path, metadata: dict[str, Any]) -> None:
+    save_json(metadata, output_dir / "DONE.json")
