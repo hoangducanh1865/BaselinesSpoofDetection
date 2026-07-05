@@ -501,7 +501,9 @@ class RoutingCollector:
             active_count = active.sum(dim=-1)
             mass = gating.sum(dim=1)
             selected = active.sum(dim=1)
-            active_flat = active.reshape(-1, active.size(-1)).to(torch.int64)
+            # CUDA does not implement matrix multiplication for int64. Counts
+            # remain exact in float32 at the batch/token sizes used here.
+            active_flat = active.reshape(-1, active.size(-1)).to(torch.float32)
             coactive = active_flat.transpose(0, 1) @ active_flat
             for i in range(active.size(-1)):
                 for j in range(i, active.size(-1)):
