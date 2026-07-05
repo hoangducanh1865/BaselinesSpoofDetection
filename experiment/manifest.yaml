@@ -1,0 +1,44 @@
+# Best-dev-EER run directories used by the explainability experiments.
+# A run directory is resolved to its best numeric epoch checkpoint at runtime.
+
+sources:
+  asvspoof5:
+    source_dataset: asvspoof5
+    models:
+      M0:
+        ablation: M0
+        run: outputs/molex/2026_06_17_13_46_58
+      M1:
+        ablation: M1
+        run: outputs/see_molex/M1/2026_06_25_00_16_59
+      M2:
+        ablation: M2
+        run: outputs/see_molex/M2/2026_06_23_17_51_31
+      M3:
+        ablation: M3
+        run: outputs/see_molex/M3/2026_06_28_00_26_10
+
+  asvspoof2019la:
+    source_dataset: asvspoof2019la
+    models:
+      M0:
+        ablation: M0
+        run: outputs/molex/2026_06_17_22_55_26
+      M1:
+        ablation: M1
+        run: outputs/see_molex/M1/2026_06_25_18_08_41
+      M2:
+        ablation: M2
+        run: outputs/see_molex/M2/2026_07_05_08_00_22
+      M3:
+        ablation: M3
+        run: outputs/see_molex/M3/2026_07_05_08_01_17
+
+datasets:
+  - asvspoof2019la
+  - asvspoof5
+  - in_the_wild
+  - dfadd_test
+  - fake_or_real
+  - vsasv
+  - vlsp2025
