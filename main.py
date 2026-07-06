@@ -53,6 +53,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dry-run", action="store_true",
                     help="Smoke test: same as --max-steps with a small built-in default.")
     p.add_argument("--ckpt", default=None, help="Checkpoint path for --mode eval/score.")
+    p.add_argument(
+        "--init-ckpt",
+        default=None,
+        help="Initialize a new fine-tuning run from this checkpoint. Unlike --resume, "
+             "optimizer/scheduler state and epoch counters are not restored.",
+    )
     p.add_argument("--resume", nargs="?", const="latest", default=None,
                     help="Resume training. Optionally pass a MoLEx run folder like YYYY_MM_DD_HH_MM_SS.")
     return p.parse_args()

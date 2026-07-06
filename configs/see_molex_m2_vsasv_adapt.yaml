@@ -1,0 +1,69 @@
+# M2 domain adaptation from the best ASVspoof5 checkpoint to VSASV.
+#
+# This follows MoLEx Table VII, config 2: append two experts per MoE layer,
+# freeze the source model, and update only the new experts and routers.
+
+batch_size: 32
+batch_size_by_dataset:
+  vsasv_resplit: 32
+num_epochs: 10
+
+cudnn_deterministic_toggle: true
+cudnn_benchmark_toggle: false
+
+model_config:
+  # 12 source experts + 2 newly initialized VSASV experts.
+  num_expert: 14
+  num_MOE_layer: 12
+  expert_rank: 32
+  topk: 4
+  SSL_dim: 1024
+  model_name: Model_MoLEx
+  SSL_layer_num: 12
+  Finetune_id: "False"
+  nb_samp: 64600
+  wavlm_checkpoint: /home/user14/anhhd/spoof/pretrained_ssl_models/wavlm_large__mrdragonfox__llase_g1/pytorch_model.bin
+
+routing:
+  tau_max: 2.0
+  tau_min: 0.5
+  k_min: 1
+  k_max: 6
+  warmup_epochs: 2
+
+adaptation:
+  enabled: true
+  source_num_experts: 12
+  new_experts: 2
+  train_router: true
+  train_classifier: false
+  train_featfusion: false
+
+optim_config:
+  optimizer: adamw_separate
+  amsgrad: "False"
+  # Router LR and new-expert LR retain the original MoLEx optimizer scales.
+  base_lr: 0.0001
+  lora_lr: 0.00001
+  lr_min: 0.000001
+  betas: [0.9, 0.999]
+  weight_decay: 0.0001
+  lora_weight_decay: 0.00005
+  scheduler: LinearWarm_ExpDecay
+  lr_decay: 0.5
+  decay_LR_max: 10
+  decay_LR_warm: 2
+
+paths:
+  data_root:
+    vsasv_resplit: /home/user14/anhhd/spoof/datasets/vsasv
+  meta_root: outputs/see_molex/meta
+  output_dir: outputs/see_molex/runs
+  fold: 1
+  exp_idx: 0
+
+runtime:
+  num_gpu: 1
+  wandb_log_interval: 100
+  eval_batch_size: 128
+  eval_num_workers: 16

@@ -96,6 +96,10 @@ def _output_root(ablation: str) -> Path:
     return REPO_ROOT / "outputs" / "see_molex" / ablation
 
 
+def _adaptation_output_root(ablation: str, dataset: str) -> Path:
+    return _output_root(ablation) / "adaptations" / dataset
+
+
 def _new_run_dir(output_root: Path) -> Path:
     run_dir = output_root / datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     while run_dir.exists():
@@ -200,7 +204,7 @@ def _resolve_meta(cfg: dict, args) -> tuple[Path, Path]:
 
 
 def _json_config(cfg: dict, num_epochs: int | None) -> dict:
-    return {
+    config = {
         "cudnn_deterministic_toggle": str(cfg.get("cudnn_deterministic_toggle", "True")),
         "cudnn_benchmark_toggle": str(cfg.get("cudnn_benchmark_toggle", "False")),
 
@@ -210,6 +214,9 @@ def _json_config(cfg: dict, num_epochs: int | None) -> dict:
         "optim_config": cfg["optim_config"],
         "runtime": cfg.get("runtime", {}),
     }
+    if "adaptation" in cfg:
+        config["adaptation"] = cfg["adaptation"]
+    return config
 
 
 def _truncate_meta(meta_dir: Path, tmp_dir: Path, fold: int, n_rows: int) -> Path:
@@ -240,7 +247,8 @@ def _truncate_meta(meta_dir: Path, tmp_dir: Path, fold: int, n_rows: int) -> Pat
 
 
 def _run_torchrun(config_path: Path, meta_dir: Path, feat_file: Path, output_dir: Path,
-                  fold: int, exp_idx: int, seed: int, num_gpu: int, resume: str | None) -> None:
+                  fold: int, exp_idx: int, seed: int, num_gpu: int, resume: str | None,
+                  init_checkpoint: str | None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
@@ -257,6 +265,8 @@ def _run_torchrun(config_path: Path, meta_dir: Path, feat_file: Path, output_dir
     ]
     if resume:
         cmd.append("--resume")
+    if init_checkpoint:
+        cmd.extend(["--pretrain_checkpoint", init_checkpoint])
     subprocess.run(cmd, cwd=str(SRC_DIR), env=env, check=True)
 
 
@@ -294,7 +304,22 @@ def train(args) -> None:
     fold = cfg["paths"]["fold"]
     exp_idx = cfg["paths"]["exp_idx"]
     num_gpu = int(os.environ.get("MOLEX_NUM_GPU", cfg["runtime"]["num_gpu"]))
-    output_root = _output_root(ablation)
+    adaptation_enabled = bool(cfg.get("adaptation", {}).get("enabled", False))
+    if adaptation_enabled and args.resume and args.init_ckpt:
+        raise ValueError("--resume and --init-ckpt are mutually exclusive.")
+    if adaptation_enabled and not args.resume and not args.init_ckpt:
+        raise ValueError(
+            "This adaptation config requires --init-ckpt for a new run. "
+            "Use --resume only when continuing an existing adaptation run."
+        )
+    if args.init_ckpt and not adaptation_enabled:
+        raise ValueError("--init-ckpt requires a config with adaptation.enabled: true.")
+
+    output_root = (
+        _adaptation_output_root(ablation, args.dataset)
+        if adaptation_enabled
+        else _output_root(ablation)
+    )
     if args.resume:
         output_dir = _resume_run_dir(output_root, args.resume)
         print(f"[see_molex] Resuming from run directory: {output_dir}")
@@ -317,7 +342,18 @@ def train(args) -> None:
         with open(config_path, "w") as f:
             json.dump(_json_config(cfg, num_epochs), f, indent=2)
 
-        _run_torchrun(config_path, meta_dir, feat_file, output_dir, fold, exp_idx, args.seed, num_gpu, args.resume)
+        _run_torchrun(
+            config_path,
+            meta_dir,
+            feat_file,
+            output_dir,
+            fold,
+            exp_idx,
+            args.seed,
+            num_gpu,
+            args.resume,
+            args.init_ckpt,
+        )
 
 
 def _load_model_and_eval_loader(cfg: dict, args, ablation: str):

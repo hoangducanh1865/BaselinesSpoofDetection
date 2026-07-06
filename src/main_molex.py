@@ -92,6 +92,7 @@ def init_wandb_run(rank, run_log_path, model_tag, config, args, meta_path, feat_
                 "fold": args.fold,
                 "exp_idx": args.exp_idx,
                 "resume": args.resume,
+                "pretrain_checkpoint": args.pretrain_checkpoint,
                 "run_dir": str(model_tag),
                 "meta_dir": str(meta_path),
                 "feat_file": str(feat_file),
@@ -115,6 +116,116 @@ def cleanup():
     """Tear down the distributed process group."""
     if dist.is_initialized():
         dist.destroy_process_group()
+
+
+def _checkpoint_state_dict(checkpoint_path):
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    if isinstance(checkpoint, dict) and "model" in checkpoint:
+        checkpoint = checkpoint["model"]
+    return {
+        (name[len("module."):] if name.startswith("module.") else name): value
+        for name, value in checkpoint.items()
+    }
+
+
+def load_expanded_expert_checkpoint(model, checkpoint_path, source_num_experts):
+    """Load a source checkpoint while retaining random rows for added experts."""
+    source_state = _checkpoint_state_dict(checkpoint_path)
+    target_state = model.state_dict()
+    loaded = 0
+    expanded_router_tensors = 0
+    unexpected = []
+
+    for name, source_value in source_state.items():
+        if name not in target_state:
+            unexpected.append(name)
+            continue
+        target_value = target_state[name]
+        if source_value.shape == target_value.shape:
+            target_state[name] = source_value
+            loaded += 1
+            continue
+        is_expanded_router = (
+            ".router." in name
+            and source_value.ndim == target_value.ndim
+            and source_value.shape[0] == source_num_experts
+            and target_value.shape[0] > source_value.shape[0]
+            and source_value.shape[1:] == target_value.shape[1:]
+        )
+        if is_expanded_router:
+            expanded = target_value.clone()
+            expanded[:source_num_experts].copy_(source_value)
+            target_state[name] = expanded
+            expanded_router_tensors += 1
+            continue
+        raise ValueError(
+            f"Unsupported checkpoint shape mismatch for {name}: "
+            f"source={tuple(source_value.shape)}, target={tuple(target_value.shape)}"
+        )
+
+    if unexpected:
+        raise ValueError(
+            f"Checkpoint contains {len(unexpected)} parameters absent from the target model; "
+            f"first entries: {unexpected[:5]}"
+        )
+    model.load_state_dict(target_state, strict=True)
+    return loaded, expanded_router_tensors
+
+
+def configure_domain_expert_adaptation(model, adaptation_config):
+    """Freeze the source model and expose only added experts and routers."""
+    source_num_experts = int(adaptation_config["source_num_experts"])
+    new_experts = int(adaptation_config["new_experts"])
+    expected_total = source_num_experts + new_experts
+    train_router = bool(adaptation_config.get("train_router", True))
+    train_classifier = bool(adaptation_config.get("train_classifier", False))
+    train_featfusion = bool(adaptation_config.get("train_featfusion", False))
+
+    model.requires_grad_(False)
+    selected_experts = []
+    router_params = []
+    moe_layers = [layer for layer in model.ssl_model.encoder.layers if hasattr(layer, "smoe")]
+    if not moe_layers:
+        raise ValueError("Domain-expert adaptation requires at least one MoE layer.")
+
+    for layer_index, layer in enumerate(moe_layers):
+        experts = layer.smoe.experts
+        if len(experts) != expected_total:
+            raise ValueError(
+                f"MoE layer {layer_index} has {len(experts)} experts; expected "
+                f"{source_num_experts} source + {new_experts} new = {expected_total}."
+            )
+        for expert in experts[source_num_experts:]:
+            expert.requires_grad_(True)
+            selected_experts.append(expert)
+        if train_router:
+            layer.smoe.router.requires_grad_(True)
+            router_params.extend(layer.smoe.router.parameters())
+
+    auxiliary_params = list(router_params)
+    if train_classifier:
+        model.decoder.requires_grad_(True)
+        auxiliary_params.extend(model.decoder.parameters())
+    if train_featfusion:
+        model.featfusion.requires_grad_(True)
+        auxiliary_params.extend(model.featfusion.parameters())
+
+    expert_params = [
+        parameter
+        for expert in selected_experts
+        for parameter in expert.parameters()
+        if parameter.requires_grad
+    ]
+    auxiliary_params = [parameter for parameter in auxiliary_params if parameter.requires_grad]
+    if not expert_params:
+        raise ValueError("No new expert parameters were selected for adaptation.")
+    if not auxiliary_params:
+        raise ValueError("No router or auxiliary parameters were selected for adaptation.")
+    return [expert_params, auxiliary_params], selected_experts
+
+
+def _parameter_count(parameters):
+    return sum(parameter.numel() for parameter in parameters)
 
 
 def run_train(args):
@@ -171,6 +282,7 @@ def run_train(args):
         append_run_log(run_log_path, f"Meta dir: {meta_path}")
         append_run_log(run_log_path, f"Feature file: {feat_file}")
         append_run_log(run_log_path, f"Resume requested: {args.resume}")
+        append_run_log(run_log_path, f"Initialization checkpoint: {args.pretrain_checkpoint}")
         append_run_log(run_log_path, "=" * 80)
 
     wandb_run = init_wandb_run(rank, run_log_path, model_tag, config, args, meta_path, feat_file)
@@ -184,9 +296,42 @@ def run_train(args):
     model = model_class(model_config)
     log_rank0(rank, run_log_path, "[setup] Model initialized.")
 
-    class_head_param = list(model.decoder.parameters()) + (list(model.featfusion.parameters()) if hasattr(model, 'featfusion') else [])
-    lora_adapt_param = (model.get_MOE_param_list() if hasattr(model, 'num_MOE_layer') else [])
-    params_backend = [lora_adapt_param, class_head_param]
+    adaptation_config = config.get("adaptation", {})
+    adaptation_enabled = bool(adaptation_config.get("enabled", False))
+    orth_experts = None
+    if adaptation_enabled:
+        if not args.resume:
+            if not args.pretrain_checkpoint:
+                raise ValueError("Adaptation requires --pretrain_checkpoint for a new run.")
+            source_num_experts = int(adaptation_config["source_num_experts"])
+            loaded, expanded = load_expanded_expert_checkpoint(
+                model, args.pretrain_checkpoint, source_num_experts
+            )
+            log_rank0(
+                rank,
+                run_log_path,
+                f"[adaptation] Initialized from {args.pretrain_checkpoint}; "
+                f"loaded_tensors={loaded}, expanded_router_tensors={expanded}.",
+            )
+        params_backend, orth_experts = configure_domain_expert_adaptation(
+            model, adaptation_config
+        )
+        log_rank0(
+            rank,
+            run_log_path,
+            "[adaptation] Trainable scope: newly added experts + routers; "
+            f"expert_params={_parameter_count(params_backend[0]):,}, "
+            f"router_aux_params={_parameter_count(params_backend[1]):,}, "
+            f"total={_parameter_count(params_backend[0] + params_backend[1]):,}.",
+        )
+    else:
+        class_head_param = list(model.decoder.parameters()) + (
+            list(model.featfusion.parameters()) if hasattr(model, "featfusion") else []
+        )
+        lora_adapt_param = (
+            model.get_MOE_param_list() if hasattr(model, "num_MOE_layer") else []
+        )
+        params_backend = [lora_adapt_param, class_head_param]
     log_rank0(rank, run_log_path, "[setup] Parameter groups prepared.")
 
 
@@ -318,7 +463,13 @@ def run_train(args):
             batch_loss = criterion(batch_out, batch_y)
 
             # add orthogonal loss
-            orth_loss = sum(lora_orthogonality_loss(layer.smoe.experts) for layer in moe_layers) if moe_layers else 0
+            if orth_experts is not None:
+                orth_loss = lora_orthogonality_loss(orth_experts)
+            else:
+                orth_loss = sum(
+                    lora_orthogonality_loss(layer.smoe.experts)
+                    for layer in moe_layers
+                ) if moe_layers else 0
             orth_loss_value = float(orth_loss.detach().item()) if torch.is_tensor(orth_loss) else float(orth_loss)
             batch_loss = batch_loss + orth_loss*0.01
 
