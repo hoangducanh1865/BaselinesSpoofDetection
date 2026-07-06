@@ -203,6 +203,16 @@ def _resolve_meta(cfg: dict, args) -> tuple[Path, Path]:
     )
 
 
+def _resolve_checkpoint_path(value: str) -> Path:
+    checkpoint = Path(value).expanduser()
+    if not checkpoint.is_absolute():
+        checkpoint = REPO_ROOT / checkpoint
+    checkpoint = checkpoint.resolve()
+    if not checkpoint.is_file():
+        raise FileNotFoundError(f"Initialization checkpoint does not exist: {checkpoint}")
+    return checkpoint
+
+
 def _json_config(cfg: dict, num_epochs: int | None) -> dict:
     config = {
         "cudnn_deterministic_toggle": str(cfg.get("cudnn_deterministic_toggle", "True")),
@@ -314,6 +324,11 @@ def train(args) -> None:
         )
     if args.init_ckpt and not adaptation_enabled:
         raise ValueError("--init-ckpt requires a config with adaptation.enabled: true.")
+    init_checkpoint = (
+        str(_resolve_checkpoint_path(args.init_ckpt))
+        if args.init_ckpt
+        else None
+    )
 
     output_root = (
         _adaptation_output_root(ablation, args.dataset)
@@ -352,7 +367,7 @@ def train(args) -> None:
             args.seed,
             num_gpu,
             args.resume,
-            args.init_ckpt,
+            init_checkpoint,
         )
 
 
