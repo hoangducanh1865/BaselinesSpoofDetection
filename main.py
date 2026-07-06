@@ -25,6 +25,7 @@ DATASETS = [
     "in_the_wild",
     "vlsp2025",
     "vsasv",
+    "vsasv_resplit",
 ]
 MODES = ["train", "eval", "score"]
 

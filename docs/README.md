@@ -20,6 +20,7 @@ Danh sach tai lieu:
 - [RawTFNet](./rawtfnet.md)
 - [Whisper-MFCC-MesoNet](./whisper_mfcc_mesonet.md)
 - [Evolving AASIST](./eaasist.md)
+- [VSASV speaker-disjoint resplit](./vsasv_resplit.md)
 
 Ghi chu chung:
 

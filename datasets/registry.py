@@ -23,6 +23,7 @@ DATASET_MODULES = {
     "in_the_wild": ("datasets.in_the_wild", None),
     "vlsp2025": ("datasets.vlsp2025", None),
     "vsasv": ("datasets.vsasv", None),
+    "vsasv_resplit": ("datasets.vsasv", "resplit"),
 }
 
 
@@ -42,6 +43,7 @@ DATA_ROOTS = {
     "in_the_wild": "/home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild",
     "vlsp2025": "/home/user14/anhhd/spoof/datasets/vlsp2025",
     "vsasv": "/home/user14/anhhd/spoof/datasets/vsasv",
+    "vsasv_resplit": "/home/user14/anhhd/spoof/datasets/vsasv",
 }
 
 
