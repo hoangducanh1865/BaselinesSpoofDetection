@@ -30,6 +30,7 @@ from baselines.eval_audio import (
     write_eer_unavailable,
     write_skipped_audio,
 )
+from datasets.registry import ensure_eval_meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AASIST_DIR = Path(__file__).resolve().parent
@@ -54,43 +55,6 @@ VARIANTS = {
     },
 }
 
-DATASET_MODULES = {
-    "asvspoof5": ("datasets.asvspoof5", None),
-    "asvspoof2019la": ("datasets.asvspoof2019", "LA"),
-    "asvspoof2019pa": ("datasets.asvspoof2019", "PA"),
-    "asvspoof2021la": ("datasets.asvspoof2021", "LA"),
-    "asvspoof2021df": ("datasets.asvspoof2021", "DF"),
-    "asvspoof2021pa": ("datasets.asvspoof2021", "PA"),
-    "dfadd_test": ("datasets.dfadd", None),
-    "fake_or_real": ("datasets.fake_or_real", None),
-    "fake_or_real_2sec": ("datasets.fake_or_real", "2sec"),
-    "fake_or_real_norm": ("datasets.fake_or_real", "norm"),
-    "fake_or_real_original": ("datasets.fake_or_real", "original"),
-    "fake_or_real_rerec": ("datasets.fake_or_real", "rerec"),
-    "in_the_wild": ("datasets.in_the_wild", None),
-    "vlsp2025": ("datasets.vlsp2025", None),
-    "vsasv": ("datasets.vsasv", None),
-}
-
-DATA_ROOTS = {
-    "asvspoof5": "/home/user14/anhhd/spoof/datasets/asvspoof5",
-    "asvspoof2019la": "/home/user14/anhhd/spoof/datasets/asvspoof2019/LA/LA",
-    "asvspoof2019pa": "/home/user14/anhhd/spoof/datasets/asvspoof2019/PA/PA",
-    "asvspoof2021la": "/home/user14/anhhd/spoof/datasets/asvspoof2021",
-    "asvspoof2021df": "/home/user14/anhhd/spoof/datasets/asvspoof2021",
-    "asvspoof2021pa": "/home/user14/anhhd/spoof/datasets/asvspoof2021",
-    "dfadd_test": "/home/user14/anhhd/spoof/datasets/dfadd_test",
-    "fake_or_real": "/home/user14/anhhd/spoof/datasets/fake_or_real",
-    "fake_or_real_2sec": "/home/user14/anhhd/spoof/datasets/fake_or_real",
-    "fake_or_real_norm": "/home/user14/anhhd/spoof/datasets/fake_or_real",
-    "fake_or_real_original": "/home/user14/anhhd/spoof/datasets/fake_or_real",
-    "fake_or_real_rerec": "/home/user14/anhhd/spoof/datasets/fake_or_real",
-    "in_the_wild": "/home/user14/anhhd/spoof/datasets/in_the_wild/release_in_the_wild",
-    "vlsp2025": "/home/user14/anhhd/spoof/datasets/vlsp2025",
-    "vsasv": "/home/user14/anhhd/spoof/datasets/vsasv",
-}
-
-
 def _variant(args) -> dict:
     return VARIANTS.get(args.baseline, VARIANTS["aasist"])
 
@@ -105,13 +69,7 @@ def _load_model_config(args) -> dict:
 
 
 def _resolve_meta(args) -> tuple[Path, Path]:
-    module_name, track = DATASET_MODULES[args.dataset]
-    mod = importlib.import_module(module_name)
-    data_root = Path(os.environ.get("SPOOF_DATA_ROOT") or DATA_ROOTS[args.dataset])
-    meta_dir = _output_root(args) / "meta" / args.dataset
-    fold = 1
-    mod.ensure_meta(data_root=data_root, meta_dir=meta_dir, fold=fold, track=track)
-    return meta_dir / f"fold{fold}_evaluation.tsv", meta_dir / "wav.scp"
+    return ensure_eval_meta(args.dataset, _output_root(args), fold=1)
 
 
 def _pad(x: np.ndarray, max_len: int = 64600) -> np.ndarray:
